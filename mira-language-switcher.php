@@ -66,6 +66,10 @@ class Mira_Language_Switcher {
         add_shortcode('lang_flag_it', array($this, 'shortcode_lang_flag_it'));
         add_shortcode('lang_flag_es', array($this, 'shortcode_lang_flag_es'));
 
+        // Add language flags to menu
+        add_filter('wp_nav_menu_items', array($this, 'add_flags_to_menu'), 10, 2);
+        add_action('wp_head', array($this, 'menu_flags_css'));
+
         // Activation/Deactivation hooks
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
@@ -124,6 +128,9 @@ class Mira_Language_Switcher {
         register_setting('mira_ls_settings_group', 'mira_ls_default_language');
         register_setting('mira_ls_settings_group', 'mira_ls_enabled_languages');
         register_setting('mira_ls_settings_group', 'mira_ls_show_flags');
+        register_setting('mira_ls_settings_group', 'mira_ls_add_to_menu');
+        register_setting('mira_ls_settings_group', 'mira_ls_menu_location');
+        register_setting('mira_ls_settings_group', 'mira_ls_menu_flag_type');
     }
 
     /**
@@ -784,6 +791,89 @@ class Mira_Language_Switcher {
         }
 
         return $language;
+    }
+
+    /**
+     * Add language flags to navigation menu
+     *
+     * @param string $items The menu items HTML
+     * @param object $args Menu arguments
+     * @return string Modified menu items
+     */
+    public function add_flags_to_menu($items, $args) {
+        // Check if feature is enabled
+        $add_to_menu = get_option('mira_ls_add_to_menu', 'no');
+        if ($add_to_menu !== 'yes') {
+            return $items;
+        }
+
+        // Get configured menu location (default to all menus if not set)
+        $target_location = get_option('mira_ls_menu_location', 'all');
+
+        // Check if we should add to this menu
+        if ($target_location !== 'all' && $args->theme_location !== $target_location) {
+            return $items;
+        }
+
+        // Get flag type (emoji or text)
+        $flag_type = get_option('mira_ls_menu_flag_type', 'emoji');
+
+        // Generate shortcodes based on type
+        if ($flag_type === 'text') {
+            $flags = do_shortcode('[lang_flag_en type="text"] [lang_flag_it type="text"] [lang_flag_es type="text"]');
+        } else {
+            $flags = do_shortcode('[lang_flag_en] [lang_flag_it] [lang_flag_es]');
+        }
+
+        // Wrap in menu item
+        $lang_item = '<li class="menu-item menu-item-type-custom menu-item-language-switcher">';
+        $lang_item .= $flags;
+        $lang_item .= '</li>';
+
+        // Add to end of menu
+        $items .= $lang_item;
+
+        return $items;
+    }
+
+    /**
+     * Add CSS for language flags in menu
+     */
+    public function menu_flags_css() {
+        // Only output if feature is enabled
+        $add_to_menu = get_option('mira_ls_add_to_menu', 'no');
+        if ($add_to_menu !== 'yes') {
+            return;
+        }
+        ?>
+        <style>
+        .menu-item-language-switcher {
+            display: flex !important;
+            align-items: center;
+        }
+        .menu-item-language-switcher a,
+        .menu-item-language-switcher span {
+            font-size: 22px;
+            text-decoration: none;
+            margin: 0 8px;
+            transition: opacity 0.3s ease;
+        }
+        .menu-item-language-switcher a:hover {
+            opacity: 0.7;
+        }
+        .menu-item-language-switcher .current-lang {
+            opacity: 0.5;
+            cursor: default;
+        }
+        @media (max-width: 768px) {
+            .menu-item-language-switcher a,
+            .menu-item-language-switcher span {
+                font-size: 18px;
+                margin: 0 5px;
+            }
+        }
+        </style>
+        <?php
     }
 
     /**
