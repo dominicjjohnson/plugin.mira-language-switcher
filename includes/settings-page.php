@@ -12,6 +12,8 @@ if (isset($_POST['mira_ls_save_settings']) && check_admin_referer('mira_ls_setti
     update_option('mira_ls_add_to_menu', isset($_POST['mira_ls_add_to_menu']) ? 'yes' : 'no');
     update_option('mira_ls_menu_location', sanitize_text_field($_POST['mira_ls_menu_location']));
     update_option('mira_ls_menu_flag_type', sanitize_text_field($_POST['mira_ls_menu_flag_type']));
+    update_option('mira_ls_auto_redirect', isset($_POST['mira_ls_auto_redirect']) ? 'yes' : 'no');
+    update_option('mira_ls_show_lang_in_title', isset($_POST['mira_ls_show_lang_in_title']) ? 'yes' : 'no');
 
     echo '<div class="notice notice-success is-dismissible"><p>' . __('Settings saved successfully!', 'mira-language-switcher') . '</p></div>';
 }
@@ -23,6 +25,8 @@ $show_flags = get_option('mira_ls_show_flags', 1);
 $add_to_menu = get_option('mira_ls_add_to_menu', 'no');
 $menu_location = get_option('mira_ls_menu_location', 'all');
 $menu_flag_type = get_option('mira_ls_menu_flag_type', 'emoji');
+$auto_redirect = get_option('mira_ls_auto_redirect', 'no');
+$show_lang_in_title = get_option('mira_ls_show_lang_in_title', 'no');
 
 // Get registered menu locations
 $menu_locations = get_registered_nav_menus();
@@ -164,6 +168,49 @@ $available_languages = array(
                         </option>
                     </select>
                     <p class="description"><?php _e('Choose how to display the language switcher in the menu.', 'mira-language-switcher'); ?></p>
+                </td>
+            </tr>
+        </table>
+
+        <h2><?php _e('Translation Behavior', 'mira-language-switcher'); ?></h2>
+        <p><?php _e('Control how the plugin handles translations and displays translated content.', 'mira-language-switcher'); ?></p>
+
+        <table class="form-table">
+            <tr>
+                <th scope="row">
+                    <label for="mira_ls_auto_redirect"><?php _e('Automatic Redirects', 'mira-language-switcher'); ?></label>
+                </th>
+                <td>
+                    <label>
+                        <input type="checkbox"
+                               name="mira_ls_auto_redirect"
+                               id="mira_ls_auto_redirect"
+                               value="1"
+                               <?php checked($auto_redirect, 'yes'); ?>>
+                        <?php _e('Automatically redirect to translated version based on language cookie', 'mira-language-switcher'); ?>
+                    </label>
+                    <p class="description">
+                        <?php _e('When enabled, users will be automatically redirected to the translated version of a page if one exists, based on their language preference stored in cookies. If no translation exists, the English version will be shown.', 'mira-language-switcher'); ?>
+                    </p>
+                </td>
+            </tr>
+
+            <tr>
+                <th scope="row">
+                    <label for="mira_ls_show_lang_in_title"><?php _e('Language Prefix in Titles', 'mira-language-switcher'); ?></label>
+                </th>
+                <td>
+                    <label>
+                        <input type="checkbox"
+                               name="mira_ls_show_lang_in_title"
+                               id="mira_ls_show_lang_in_title"
+                               value="1"
+                               <?php checked($show_lang_in_title, 'yes'); ?>>
+                        <?php _e('Add language prefix to page titles (e.g., "[IT] Page Title")', 'mira-language-switcher'); ?>
+                    </label>
+                    <p class="description">
+                        <?php _e('When enabled, non-English pages will display a language prefix in their titles. For example, Italian pages will show "[IT] Page Title" and Spanish pages will show "[ES] Page Title". English pages will not have a prefix.', 'mira-language-switcher'); ?>
+                    </p>
                 </td>
             </tr>
         </table>

@@ -70,6 +70,13 @@ class Mira_Language_Switcher {
         add_filter('wp_nav_menu_items', array($this, 'add_flags_to_menu'), 10, 2);
         add_action('wp_head', array($this, 'menu_flags_css'));
 
+        // Automatic redirects based on cookie
+        add_action('template_redirect', array($this, 'auto_redirect_to_translation'));
+
+        // Title modification
+        add_filter('the_title', array($this, 'modify_title_with_language'), 10, 2);
+        add_filter('wp_title', array($this, 'modify_wp_title'), 10, 2);
+
         // Activation/Deactivation hooks
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
@@ -131,6 +138,8 @@ class Mira_Language_Switcher {
         register_setting('mira_ls_settings_group', 'mira_ls_add_to_menu');
         register_setting('mira_ls_settings_group', 'mira_ls_menu_location');
         register_setting('mira_ls_settings_group', 'mira_ls_menu_flag_type');
+        register_setting('mira_ls_settings_group', 'mira_ls_auto_redirect');
+        register_setting('mira_ls_settings_group', 'mira_ls_show_lang_in_title');
     }
 
     /**
@@ -791,6 +800,156 @@ class Mira_Language_Switcher {
         }
 
         return $language;
+    }
+
+    /**
+     * Automatically redirect to translated version if available
+     */
+    public function auto_redirect_to_translation() {
+        // Only on frontend, not admin
+        if (is_admin()) {
+            return;
+        }
+
+        // Check if auto-redirect is enabled
+        $auto_redirect = get_option('mira_ls_auto_redirect', 'no');
+        if ($auto_redirect !== 'yes') {
+            return;
+        }
+
+        // Get current page
+        $current_page_id = get_the_ID();
+        if (!$current_page_id || !is_page()) {
+            return;
+        }
+
+        // Get current language from URL and cookie
+        $url_lang = $this->detect_language_from_url();
+        $cookie_lang = isset($_COOKIE['mira_language']) ? $_COOKIE['mira_language'] : '';
+
+        // If there's a language in the URL, don't redirect (user explicitly chose it)
+        if ($url_lang !== MIRA_LS_DEFAULT_LANGUAGE) {
+            return;
+        }
+
+        // If cookie language is same as default, no redirect needed
+        if (empty($cookie_lang) || $cookie_lang === MIRA_LS_DEFAULT_LANGUAGE) {
+            return;
+        }
+
+        // Check if current page is English
+        $page_lang = self::get_page_language($current_page_id);
+        if ($page_lang !== 'en') {
+            return; // Already on a translated page
+        }
+
+        // Get translation for cookie language
+        $translated_id = self::get_translation($current_page_id, $cookie_lang);
+
+        if ($translated_id) {
+            // Build redirect URL
+            $current_page = get_post($current_page_id);
+            $redirect_url = home_url('/' . $cookie_lang . '/' . $current_page->post_name . '/');
+
+            // Redirect
+            wp_redirect($redirect_url, 302);
+            exit;
+        }
+
+        // No translation exists - show English version (do nothing)
+    }
+
+    /**
+     * Detect language from URL only (not cookie)
+     *
+     * @return string Language code
+     */
+    private function detect_language_from_url() {
+        $request_uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
+
+        $home_path = parse_url(home_url(), PHP_URL_PATH);
+        if ($home_path) {
+            $home_path = rtrim($home_path, '/');
+        }
+
+        $pattern = '#^' . preg_quote($home_path, '#') . '/(' . implode('|', MIRA_LS_SUPPORTED_LANGUAGES) . ')(/|$)#';
+
+        if (preg_match($pattern, $request_uri, $matches)) {
+            return $matches[1];
+        }
+
+        return MIRA_LS_DEFAULT_LANGUAGE;
+    }
+
+    /**
+     * Modify page/post title to include language prefix
+     *
+     * @param string $title The title
+     * @param int $id Post ID
+     * @return string Modified title
+     */
+    public function modify_title_with_language($title, $id = null) {
+        // Check if feature is enabled
+        $show_lang = get_option('mira_ls_show_lang_in_title', 'no');
+        if ($show_lang !== 'yes') {
+            return $title;
+        }
+
+        // Only modify on frontend
+        if (is_admin()) {
+            return $title;
+        }
+
+        // Get page language
+        if ($id) {
+            $page_lang = self::get_page_language($id);
+
+            // Only add prefix for non-English pages
+            if ($page_lang !== 'en') {
+                $lang_labels = array(
+                    'it' => '[IT]',
+                    'es' => '[ES]'
+                );
+
+                if (isset($lang_labels[$page_lang])) {
+                    $title = $lang_labels[$page_lang] . ' ' . $title;
+                }
+            }
+        }
+
+        return $title;
+    }
+
+    /**
+     * Modify wp_title (browser title bar)
+     *
+     * @param string $title The title
+     * @param string $sep Separator
+     * @return string Modified title
+     */
+    public function modify_wp_title($title, $sep = '|') {
+        // Check if feature is enabled
+        $show_lang = get_option('mira_ls_show_lang_in_title', 'no');
+        if ($show_lang !== 'yes') {
+            return $title;
+        }
+
+        // Get current language
+        $current_lang = $this->get_current_language();
+
+        // Only add for non-English
+        if ($current_lang !== 'en') {
+            $lang_labels = array(
+                'it' => '[IT]',
+                'es' => '[ES]'
+            );
+
+            if (isset($lang_labels[$current_lang])) {
+                $title = $lang_labels[$current_lang] . ' ' . $title;
+            }
+        }
+
+        return $title;
     }
 
     /**
