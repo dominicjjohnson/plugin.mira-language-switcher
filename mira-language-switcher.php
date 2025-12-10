@@ -66,12 +66,19 @@ class Mira_Language_Switcher {
         add_shortcode('lang_flag_it', array($this, 'shortcode_lang_flag_it'));
         add_shortcode('lang_flag_es', array($this, 'shortcode_lang_flag_es'));
 
+        // Language-specific menu locations
+        add_action('after_setup_theme', array($this, 'register_language_menu_locations'), 999);
+        add_filter('theme_mod_nav_menu_locations', array($this, 'filter_menu_locations'), 10, 1);
+
         // Add language flags to menu
         add_filter('wp_nav_menu_items', array($this, 'add_flags_to_menu'), 10, 2);
         add_action('wp_head', array($this, 'menu_flags_css'));
 
+        // Redirect URLs without language prefix to include default language
+        add_action('template_redirect', array($this, 'redirect_to_language_prefix'), 5);
+
         // Automatic redirects based on cookie
-        add_action('template_redirect', array($this, 'auto_redirect_to_translation'));
+        add_action('template_redirect', array($this, 'auto_redirect_to_translation'), 10);
 
         // Title modification
         add_filter('the_title', array($this, 'modify_title_with_language'), 10, 2);
@@ -143,6 +150,95 @@ class Mira_Language_Switcher {
     }
 
     /**
+     * Register language-specific menu locations
+     * Duplicates each menu location for each enabled language
+     */
+    public function register_language_menu_locations() {
+        // Get currently registered nav menus from the theme
+        $theme_locations = get_registered_nav_menus();
+
+        if (empty($theme_locations)) {
+            return;
+        }
+
+        // Get enabled languages
+        $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
+
+        // Language names mapping
+        $language_names = array(
+            'en' => __('English', 'mira-language-switcher'),
+            'es' => __('Spanish', 'mira-language-switcher'),
+            'fr' => __('French', 'mira-language-switcher'),
+            'de' => __('German', 'mira-language-switcher'),
+            'it' => __('Italian', 'mira-language-switcher'),
+            'pt' => __('Portuguese', 'mira-language-switcher'),
+            'ru' => __('Russian', 'mira-language-switcher'),
+            'ja' => __('Japanese', 'mira-language-switcher'),
+            'zh' => __('Chinese', 'mira-language-switcher'),
+            'ar' => __('Arabic', 'mira-language-switcher')
+        );
+
+        $new_locations = array();
+
+        // For each language, create language-specific menu locations
+        foreach ($enabled_languages as $lang) {
+            $lang_name = isset($language_names[$lang]) ? $language_names[$lang] : strtoupper($lang);
+
+            foreach ($theme_locations as $location => $description) {
+                // Create language-specific location key
+                $lang_location = $location . '_' . $lang;
+
+                // Create language-specific description
+                /* translators: 1: original menu location name, 2: language name */
+                $lang_description = sprintf(__('%1$s (%2$s)', 'mira-language-switcher'), $description, $lang_name);
+
+                $new_locations[$lang_location] = $lang_description;
+            }
+        }
+
+        // Register the new language-specific menu locations
+        if (!empty($new_locations)) {
+            register_nav_menus($new_locations);
+        }
+    }
+
+    /**
+     * Filter menu locations to show correct menu based on current language
+     *
+     * @param array $locations Menu locations with assigned menus
+     * @return array Modified locations
+     */
+    public function filter_menu_locations($locations) {
+        // Only filter on frontend, not in admin
+        if (is_admin()) {
+            return $locations;
+        }
+
+        // Get current language
+        $current_lang = $this->get_current_language();
+
+        // Get original theme locations
+        $theme_locations = get_registered_nav_menus();
+
+        $filtered_locations = array();
+
+        foreach ($theme_locations as $location => $description) {
+            // Check if there's a language-specific menu assigned
+            $lang_location = $location . '_' . $current_lang;
+
+            if (isset($locations[$lang_location]) && !empty($locations[$lang_location])) {
+                // Use the language-specific menu
+                $filtered_locations[$location] = $locations[$lang_location];
+            } elseif (isset($locations[$location])) {
+                // Fallback to the original location if no language-specific menu
+                $filtered_locations[$location] = $locations[$location];
+            }
+        }
+
+        return $filtered_locations;
+    }
+
+    /**
      * Setup page callback
      */
     public function setup_page() {
@@ -159,11 +255,15 @@ class Mira_Language_Switcher {
     /**
      * Detect current language from URL
      *
-     * @return string Language code (en, it, es)
+     * @return string Language code (en, it, es, etc.)
      */
     public function detect_language() {
         $request_uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
         $detected_lang = null;
+
+        // Get enabled languages from settings
+        $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
+        $default_language = get_option('mira_ls_default_language', 'en');
 
         // Get WordPress home path (handles subdirectory installations)
         $home_path = parse_url(home_url(), PHP_URL_PATH);
@@ -173,7 +273,7 @@ class Mira_Language_Switcher {
 
         // Check for language in URL pattern after the WordPress path
         // Example: /plug/en/about-us/ where /plug is the WordPress subdirectory
-        $pattern = '#^' . preg_quote($home_path, '#') . '/(' . implode('|', MIRA_LS_SUPPORTED_LANGUAGES) . ')(/|$)#';
+        $pattern = '#^' . preg_quote($home_path, '#') . '/(' . implode('|', $enabled_languages) . ')(/|$)#';
 
         if (preg_match($pattern, $request_uri, $matches)) {
             $detected_lang = $matches[1];
@@ -187,12 +287,12 @@ class Mira_Language_Switcher {
         }
 
         // Check if language cookie exists
-        if (isset($_COOKIE['mira_language']) && in_array($_COOKIE['mira_language'], MIRA_LS_SUPPORTED_LANGUAGES)) {
+        if (isset($_COOKIE['mira_language']) && in_array($_COOKIE['mira_language'], $enabled_languages)) {
             return $_COOKIE['mira_language'];
         }
 
         // Return default language if no language detected
-        return MIRA_LS_DEFAULT_LANGUAGE;
+        return $default_language;
     }
 
     /**
@@ -256,13 +356,16 @@ class Mira_Language_Switcher {
         // Get the actual request URI
         $request_uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
 
+        // Get enabled languages from settings
+        $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
+
         // Check if the requested URL contains a language prefix
         $home_path = parse_url(home_url(), PHP_URL_PATH);
         if ($home_path) {
             $home_path = rtrim($home_path, '/');
         }
 
-        $pattern = '#' . preg_quote($home_path, '#') . '/(' . implode('|', MIRA_LS_SUPPORTED_LANGUAGES) . ')(/|$)#';
+        $pattern = '#' . preg_quote($home_path, '#') . '/(' . implode('|', $enabled_languages) . ')(/|$)#';
 
         // If URL has language prefix in REQUEST_URI, don't redirect
         if (preg_match($pattern, $request_uri)) {
@@ -286,8 +389,11 @@ class Mira_Language_Switcher {
         // Get the language from query var
         $lang = get_query_var('lang');
 
-        // If no language in URL or it's the default language, do nothing
-        if (empty($lang) || $lang === MIRA_LS_DEFAULT_LANGUAGE) {
+        // Get default language from settings
+        $default_language = get_option('mira_ls_default_language', 'en');
+
+        // If no language in URL, do nothing
+        if (empty($lang)) {
             return;
         }
 
@@ -297,14 +403,20 @@ class Mira_Language_Switcher {
             return;
         }
 
-        // Find the English page by slug
-        $english_page = get_page_by_path($pagename);
-        if (!$english_page) {
+        // Find the default language page by slug
+        $default_page = get_page_by_path($pagename);
+        if (!$default_page) {
+            return;
+        }
+
+        // If the requested language is the default language, show the default page
+        if ($lang === $default_language) {
+            // The default page is already being loaded, no need to modify query
             return;
         }
 
         // Get the translated page ID for this language
-        $translated_id = self::get_translation($english_page->ID, $lang);
+        $translated_id = self::get_translation($default_page->ID, $lang);
 
         // If translation exists, modify the query to load it
         if ($translated_id) {
@@ -367,6 +479,24 @@ class Mira_Language_Switcher {
             wp_die(__('You do not have sufficient permissions to access this page.'));
         }
 
+        // Get enabled languages from settings
+        $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
+        $default_language = get_option('mira_ls_default_language', 'en');
+
+        // Language names mapping
+        $language_names = array(
+            'en' => __('English', 'mira-language-switcher'),
+            'es' => __('Spanish', 'mira-language-switcher'),
+            'fr' => __('French', 'mira-language-switcher'),
+            'de' => __('German', 'mira-language-switcher'),
+            'it' => __('Italian', 'mira-language-switcher'),
+            'pt' => __('Portuguese', 'mira-language-switcher'),
+            'ru' => __('Russian', 'mira-language-switcher'),
+            'ja' => __('Japanese', 'mira-language-switcher'),
+            'zh' => __('Chinese', 'mira-language-switcher'),
+            'ar' => __('Arabic', 'mira-language-switcher')
+        );
+
         // Get all pages
         $all_pages = get_posts(array(
             'post_type' => 'page',
@@ -376,22 +506,26 @@ class Mira_Language_Switcher {
             'order' => 'ASC'
         ));
 
-        // Filter pages by language
-        $english_pages = array();
-        $italian_pages = array();
-        $spanish_pages = array();
+        // Filter pages by language - build array dynamically based on enabled languages
+        $pages_by_language = array();
+        foreach ($enabled_languages as $lang) {
+            $pages_by_language[$lang] = array();
+        }
 
         foreach ($all_pages as $page) {
             $page_lang = self::get_page_language($page->ID);
 
-            if ($page_lang === 'en') {
-                $english_pages[] = $page;
-            } elseif ($page_lang === 'it') {
-                $italian_pages[] = $page;
-            } elseif ($page_lang === 'es') {
-                $spanish_pages[] = $page;
+            // Only include pages for enabled languages
+            if (in_array($page_lang, $enabled_languages)) {
+                $pages_by_language[$page_lang][] = $page;
             }
         }
+
+        // Get pages in default language for the main column
+        $default_pages = isset($pages_by_language[$default_language]) ? $pages_by_language[$default_language] : array();
+
+        // Get translation languages (all enabled languages except default)
+        $translation_languages = array_diff($enabled_languages, array($default_language));
 
         // Get saved translation links
         $translation_links = get_option(MIRA_LS_TRANSLATIONS_OPTION, array());
@@ -409,14 +543,26 @@ class Mira_Language_Switcher {
         ?>
         <div class="wrap">
             <h1><?php echo esc_html__('Translation Links', 'mira-language-switcher'); ?></h1>
-            <p><?php echo esc_html__('Link English pages to their Italian and Spanish translations.', 'mira-language-switcher'); ?></p>
+            <p><?php
+                /* translators: %s: name of default language */
+                printf(__('Link %s pages to their translations.', 'mira-language-switcher'),
+                    isset($language_names[$default_language]) ? $language_names[$default_language] : $default_language
+                );
+            ?></p>
 
             <div class="notice notice-info">
                 <p>
                     <strong><?php _e('Page counts:', 'mira-language-switcher'); ?></strong>
-                    <?php printf(__('English: %d', 'mira-language-switcher'), count($english_pages)); ?> |
-                    <?php printf(__('Italian: %d', 'mira-language-switcher'), count($italian_pages)); ?> |
-                    <?php printf(__('Spanish: %d', 'mira-language-switcher'), count($spanish_pages)); ?>
+                    <?php
+                    $count_parts = array();
+                    foreach ($enabled_languages as $lang) {
+                        $lang_name = isset($language_names[$lang]) ? $language_names[$lang] : strtoupper($lang);
+                        $count = isset($pages_by_language[$lang]) ? count($pages_by_language[$lang]) : 0;
+                        /* translators: 1: language name, 2: number of pages */
+                        $count_parts[] = sprintf(__('%1$s: %2$d', 'mira-language-switcher'), $lang_name, $count);
+                    }
+                    echo implode(' | ', $count_parts);
+                    ?>
                 </p>
             </div>
 
@@ -427,28 +573,47 @@ class Mira_Language_Switcher {
                 <table class="wp-list-table widefat fixed striped">
                     <thead>
                         <tr>
-                            <th style="width: 35%;"><?php _e('English Page', 'mira-language-switcher'); ?></th>
-                            <th style="width: 30%;"><?php _e('Italian Translation', 'mira-language-switcher'); ?></th>
-                            <th style="width: 30%;"><?php _e('Spanish Translation', 'mira-language-switcher'); ?></th>
+                            <th style="width: <?php echo count($translation_languages) > 0 ? 35 : 95; ?>%;">
+                                <?php
+                                /* translators: %s: name of default language */
+                                printf(__('%s Page', 'mira-language-switcher'),
+                                    isset($language_names[$default_language]) ? $language_names[$default_language] : ucfirst($default_language)
+                                );
+                                ?>
+                            </th>
+                            <?php
+                            $col_width = count($translation_languages) > 0 ? floor(60 / count($translation_languages)) : 0;
+                            foreach ($translation_languages as $lang):
+                            ?>
+                                <th style="width: <?php echo $col_width; ?>%;">
+                                    <?php
+                                    /* translators: %s: name of language */
+                                    printf(__('%s Translation', 'mira-language-switcher'),
+                                        isset($language_names[$lang]) ? $language_names[$lang] : ucfirst($lang)
+                                    );
+                                    ?>
+                                </th>
+                            <?php endforeach; ?>
                             <th style="width: 5%;"><?php _e('ID', 'mira-language-switcher'); ?></th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php if (empty($english_pages)): ?>
+                        <?php if (empty($default_pages)): ?>
                             <tr>
-                                <td colspan="4">
-                                    <?php _e('No English pages found. Please set page languages first.', 'mira-language-switcher'); ?>
+                                <td colspan="<?php echo count($translation_languages) + 2; ?>">
+                                    <?php
+                                    /* translators: %s: name of default language */
+                                    printf(__('No %s pages found. Please set page languages first.', 'mira-language-switcher'),
+                                        isset($language_names[$default_language]) ? $language_names[$default_language] : ucfirst($default_language)
+                                    );
+                                    ?>
                                     <br>
                                     <small><?php _e('Edit a page and set its language in the Language metabox.', 'mira-language-switcher'); ?></small>
                                 </td>
                             </tr>
                         <?php else: ?>
-                            <?php foreach ($english_pages as $page): ?>
-                                <?php
-                                $page_id = $page->ID;
-                                $italian_page = isset($translation_links[$page_id]['it']) ? $translation_links[$page_id]['it'] : '';
-                                $spanish_page = isset($translation_links[$page_id]['es']) ? $translation_links[$page_id]['es'] : '';
-                                ?>
+                            <?php foreach ($default_pages as $page): ?>
+                                <?php $page_id = $page->ID; ?>
                                 <tr>
                                     <td>
                                         <strong><?php echo esc_html($page->post_title); ?></strong>
@@ -459,34 +624,40 @@ class Mira_Language_Switcher {
                                             </a>
                                         </small>
                                     </td>
-                                    <td>
-                                        <select name="translations[<?php echo $page_id; ?>][it]" style="width: 100%;">
-                                            <option value=""><?php _e('-- Select Italian Page --', 'mira-language-switcher'); ?></option>
-                                            <?php foreach ($italian_pages as $option_page): ?>
-                                                <option value="<?php echo $option_page->ID; ?>"
-                                                    <?php selected($italian_page, $option_page->ID); ?>>
-                                                    <?php echo esc_html($option_page->post_title); ?>
+                                    <?php foreach ($translation_languages as $lang): ?>
+                                        <?php
+                                        $lang_pages = isset($pages_by_language[$lang]) ? $pages_by_language[$lang] : array();
+                                        $selected_page = isset($translation_links[$page_id][$lang]) ? $translation_links[$page_id][$lang] : '';
+                                        ?>
+                                        <td>
+                                            <select name="translations[<?php echo $page_id; ?>][<?php echo $lang; ?>]" style="width: 100%;">
+                                                <option value="">
+                                                    <?php
+                                                    /* translators: %s: name of language */
+                                                    printf(__('-- Select %s Page --', 'mira-language-switcher'),
+                                                        isset($language_names[$lang]) ? $language_names[$lang] : ucfirst($lang)
+                                                    );
+                                                    ?>
                                                 </option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                        <?php if (empty($italian_pages)): ?>
-                                            <small style="color: #999;"><?php _e('No Italian pages available', 'mira-language-switcher'); ?></small>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <select name="translations[<?php echo $page_id; ?>][es]" style="width: 100%;">
-                                            <option value=""><?php _e('-- Select Spanish Page --', 'mira-language-switcher'); ?></option>
-                                            <?php foreach ($spanish_pages as $option_page): ?>
-                                                <option value="<?php echo $option_page->ID; ?>"
-                                                    <?php selected($spanish_page, $option_page->ID); ?>>
-                                                    <?php echo esc_html($option_page->post_title); ?>
-                                                </option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                        <?php if (empty($spanish_pages)): ?>
-                                            <small style="color: #999;"><?php _e('No Spanish pages available', 'mira-language-switcher'); ?></small>
-                                        <?php endif; ?>
-                                    </td>
+                                                <?php foreach ($lang_pages as $option_page): ?>
+                                                    <option value="<?php echo $option_page->ID; ?>"
+                                                        <?php selected($selected_page, $option_page->ID); ?>>
+                                                        <?php echo esc_html($option_page->post_title); ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                            <?php if (empty($lang_pages)): ?>
+                                                <small style="color: #999;">
+                                                    <?php
+                                                    /* translators: %s: name of language */
+                                                    printf(__('No %s pages available', 'mira-language-switcher'),
+                                                        isset($language_names[$lang]) ? $language_names[$lang] : ucfirst($lang)
+                                                    );
+                                                    ?>
+                                                </small>
+                                            <?php endif; ?>
+                                        </td>
+                                    <?php endforeach; ?>
                                     <td>
                                         <small style="color: #666;"><?php echo $page_id; ?></small>
                                     </td>
@@ -513,56 +684,68 @@ class Mira_Language_Switcher {
                 <table class="wp-list-table widefat">
                     <thead>
                         <tr>
-                            <th><?php _e('English Page', 'mira-language-switcher'); ?></th>
-                            <th><?php _e('Italian Translation', 'mira-language-switcher'); ?></th>
-                            <th><?php _e('Spanish Translation', 'mira-language-switcher'); ?></th>
+                            <th>
+                                <?php
+                                /* translators: %s: name of default language */
+                                printf(__('%s Page', 'mira-language-switcher'),
+                                    isset($language_names[$default_language]) ? $language_names[$default_language] : ucfirst($default_language)
+                                );
+                                ?>
+                            </th>
+                            <?php foreach ($translation_languages as $lang): ?>
+                                <th>
+                                    <?php
+                                    /* translators: %s: name of language */
+                                    printf(__('%s Translation', 'mira-language-switcher'),
+                                        isset($language_names[$lang]) ? $language_names[$lang] : ucfirst($lang)
+                                    );
+                                    ?>
+                                </th>
+                            <?php endforeach; ?>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($translation_links as $en_id => $translations): ?>
-                            <?php if (!empty($translations['it']) || !empty($translations['es'])): ?>
+                        <?php foreach ($translation_links as $default_id => $translations): ?>
+                            <?php
+                            // Check if any translation exists for enabled languages
+                            $has_translation = false;
+                            foreach ($translation_languages as $lang) {
+                                if (!empty($translations[$lang])) {
+                                    $has_translation = true;
+                                    break;
+                                }
+                            }
+                            ?>
+                            <?php if ($has_translation): ?>
                                 <tr>
                                     <td>
                                         <?php
-                                        $en_page = get_post($en_id);
-                                        if ($en_page) {
-                                            echo '<strong>' . esc_html($en_page->post_title) . '</strong>';
-                                            echo '<br><small>ID: ' . $en_id . '</small>';
+                                        $default_page = get_post($default_id);
+                                        if ($default_page) {
+                                            echo '<strong>' . esc_html($default_page->post_title) . '</strong>';
+                                            echo '<br><small>ID: ' . $default_id . '</small>';
                                         } else {
-                                            echo 'ID: ' . $en_id . ' <em>(page not found)</em>';
+                                            echo 'ID: ' . $default_id . ' <em>(page not found)</em>';
                                         }
                                         ?>
                                     </td>
-                                    <td>
-                                        <?php
-                                        if (!empty($translations['it'])) {
-                                            $it_page = get_post($translations['it']);
-                                            if ($it_page) {
-                                                echo esc_html($it_page->post_title);
-                                                echo '<br><small>ID: ' . $translations['it'] . '</small>';
+                                    <?php foreach ($translation_languages as $lang): ?>
+                                        <td>
+                                            <?php
+                                            if (!empty($translations[$lang])) {
+                                                $trans_page = get_post($translations[$lang]);
+                                                if ($trans_page) {
+                                                    echo esc_html($trans_page->post_title);
+                                                    echo '<br><small>ID: ' . $translations[$lang] . '</small>';
+                                                } else {
+                                                    echo 'ID: ' . $translations[$lang] . ' <em>(page not found)</em>';
+                                                }
                                             } else {
-                                                echo 'ID: ' . $translations['it'] . ' <em>(page not found)</em>';
+                                                echo '<em>' . __('Not set', 'mira-language-switcher') . '</em>';
                                             }
-                                        } else {
-                                            echo '<em>' . __('Not set', 'mira-language-switcher') . '</em>';
-                                        }
-                                        ?>
-                                    </td>
-                                    <td>
-                                        <?php
-                                        if (!empty($translations['es'])) {
-                                            $es_page = get_post($translations['es']);
-                                            if ($es_page) {
-                                                echo esc_html($es_page->post_title);
-                                                echo '<br><small>ID: ' . $translations['es'] . '</small>';
-                                            } else {
-                                                echo 'ID: ' . $translations['es'] . ' <em>(page not found)</em>';
-                                            }
-                                        } else {
-                                            echo '<em>' . __('Not set', 'mira-language-switcher') . '</em>';
-                                        }
-                                        ?>
-                                    </td>
+                                            ?>
+                                        </td>
+                                    <?php endforeach; ?>
                                 </tr>
                             <?php endif; ?>
                         <?php endforeach; ?>
@@ -608,6 +791,13 @@ class Mira_Language_Switcher {
             wp_die(__('You do not have sufficient permissions to access this page.'));
         }
 
+        // Get enabled languages and default language
+        $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
+        $default_language = get_option('mira_ls_default_language', 'en');
+
+        // Get translation languages (all enabled except default)
+        $translation_languages = array_diff($enabled_languages, array($default_language));
+
         // Get the translations data
         $translations = isset($_POST['translations']) ? $_POST['translations'] : array();
 
@@ -619,19 +809,15 @@ class Mira_Language_Switcher {
             if ($page_id > 0) {
                 $clean_translations[$page_id] = array();
 
-                // Italian translation
-                if (!empty($langs['it'])) {
-                    $clean_translations[$page_id]['it'] = absint($langs['it']);
-                }
-
-                // Spanish translation
-                if (!empty($langs['es'])) {
-                    $clean_translations[$page_id]['es'] = absint($langs['es']);
+                // Process each translation language dynamically
+                foreach ($translation_languages as $lang) {
+                    if (!empty($langs[$lang])) {
+                        $clean_translations[$page_id][$lang] = absint($langs[$lang]);
+                    }
                 }
 
                 // Remove entry if no translations set
-                if (empty($clean_translations[$page_id]['it']) &&
-                    empty($clean_translations[$page_id]['es'])) {
+                if (empty($clean_translations[$page_id])) {
                     unset($clean_translations[$page_id]);
                 }
             }
@@ -710,17 +896,38 @@ class Mira_Language_Switcher {
         // Get current language value
         $current_language = get_post_meta($post->ID, '_mira_page_language', true);
 
+        // Get enabled languages from settings
+        $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
+        $default_language = get_option('mira_ls_default_language', 'en');
+
         // If no language set, default to default language
         if (empty($current_language)) {
-            $current_language = MIRA_LS_DEFAULT_LANGUAGE;
+            $current_language = $default_language;
         }
 
-        // Language options
-        $languages = array(
+        // All available language names
+        $all_language_names = array(
             'en' => __('English', 'mira-language-switcher'),
+            'es' => __('Spanish', 'mira-language-switcher'),
+            'fr' => __('French', 'mira-language-switcher'),
+            'de' => __('German', 'mira-language-switcher'),
             'it' => __('Italian', 'mira-language-switcher'),
-            'es' => __('Spanish', 'mira-language-switcher')
+            'pt' => __('Portuguese', 'mira-language-switcher'),
+            'ru' => __('Russian', 'mira-language-switcher'),
+            'ja' => __('Japanese', 'mira-language-switcher'),
+            'zh' => __('Chinese', 'mira-language-switcher'),
+            'ar' => __('Arabic', 'mira-language-switcher')
         );
+
+        // Build language options from enabled languages only
+        $languages = array();
+        foreach ($enabled_languages as $code) {
+            if (isset($all_language_names[$code])) {
+                $languages[$code] = $all_language_names[$code];
+            } else {
+                $languages[$code] = strtoupper($code);
+            }
+        }
 
         ?>
         <div class="mira-language-metabox">
@@ -778,8 +985,11 @@ class Mira_Language_Switcher {
         if (isset($_POST['mira_page_language'])) {
             $language = sanitize_text_field($_POST['mira_page_language']);
 
-            // Validate language code
-            if (in_array($language, MIRA_LS_SUPPORTED_LANGUAGES)) {
+            // Get enabled languages from settings
+            $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
+
+            // Validate language code against enabled languages
+            if (in_array($language, $enabled_languages)) {
                 update_post_meta($post_id, '_mira_page_language', $language);
             }
         }
@@ -803,6 +1013,63 @@ class Mira_Language_Switcher {
     }
 
     /**
+     * Redirect URLs without language prefix to include default language prefix
+     */
+    public function redirect_to_language_prefix() {
+        // Only on frontend, not admin
+        if (is_admin()) {
+            return;
+        }
+
+        // Get the request URI
+        $request_uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
+
+        // Get enabled languages and default language
+        $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
+        $default_language = get_option('mira_ls_default_language', 'en');
+
+        // Get WordPress home path
+        $home_path = parse_url(home_url(), PHP_URL_PATH);
+        if ($home_path) {
+            $home_path = rtrim($home_path, '/');
+        }
+
+        // Check if URL already has a language prefix
+        $pattern = '#^' . preg_quote($home_path, '#') . '/(' . implode('|', $enabled_languages) . ')(/|$)#';
+        if (preg_match($pattern, $request_uri)) {
+            // URL already has language prefix, no redirect needed
+            return;
+        }
+
+        // Check if this is a page request (not homepage, not admin, not wp-content, etc.)
+        // Only redirect actual page URLs
+        if (is_404() || is_search() || is_feed()) {
+            return;
+        }
+
+        // Build the redirect URL with default language prefix
+        // Remove home_path from request_uri if present
+        $relative_uri = $request_uri;
+        if ($home_path && strpos($request_uri, $home_path) === 0) {
+            $relative_uri = substr($request_uri, strlen($home_path));
+        }
+
+        // Remove query string for processing
+        $query_string = '';
+        if (strpos($relative_uri, '?') !== false) {
+            list($relative_uri, $query_string) = explode('?', $relative_uri, 2);
+            $query_string = '?' . $query_string;
+        }
+
+        // Add default language prefix
+        $redirect_url = home_url('/' . $default_language . $relative_uri . $query_string);
+
+        // Redirect
+        wp_redirect($redirect_url, 301);
+        exit;
+    }
+
+    /**
      * Automatically redirect to translated version if available
      */
     public function auto_redirect_to_translation() {
@@ -817,6 +1084,9 @@ class Mira_Language_Switcher {
             return;
         }
 
+        // Get default language from settings
+        $default_language = get_option('mira_ls_default_language', 'en');
+
         // Get current page
         $current_page_id = get_the_ID();
         if (!$current_page_id || !is_page()) {
@@ -828,18 +1098,18 @@ class Mira_Language_Switcher {
         $cookie_lang = isset($_COOKIE['mira_language']) ? $_COOKIE['mira_language'] : '';
 
         // If there's a language in the URL, don't redirect (user explicitly chose it)
-        if ($url_lang !== MIRA_LS_DEFAULT_LANGUAGE) {
+        if ($url_lang !== $default_language) {
             return;
         }
 
         // If cookie language is same as default, no redirect needed
-        if (empty($cookie_lang) || $cookie_lang === MIRA_LS_DEFAULT_LANGUAGE) {
+        if (empty($cookie_lang) || $cookie_lang === $default_language) {
             return;
         }
 
-        // Check if current page is English
+        // Check if current page is in default language
         $page_lang = self::get_page_language($current_page_id);
-        if ($page_lang !== 'en') {
+        if ($page_lang !== $default_language) {
             return; // Already on a translated page
         }
 
@@ -856,7 +1126,7 @@ class Mira_Language_Switcher {
             exit;
         }
 
-        // No translation exists - show English version (do nothing)
+        // No translation exists - show default language version (do nothing)
     }
 
     /**
@@ -867,18 +1137,22 @@ class Mira_Language_Switcher {
     private function detect_language_from_url() {
         $request_uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
 
+        // Get enabled languages from settings
+        $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
+        $default_language = get_option('mira_ls_default_language', 'en');
+
         $home_path = parse_url(home_url(), PHP_URL_PATH);
         if ($home_path) {
             $home_path = rtrim($home_path, '/');
         }
 
-        $pattern = '#^' . preg_quote($home_path, '#') . '/(' . implode('|', MIRA_LS_SUPPORTED_LANGUAGES) . ')(/|$)#';
+        $pattern = '#^' . preg_quote($home_path, '#') . '/(' . implode('|', $enabled_languages) . ')(/|$)#';
 
         if (preg_match($pattern, $request_uri, $matches)) {
             return $matches[1];
         }
 
-        return MIRA_LS_DEFAULT_LANGUAGE;
+        return $default_language;
     }
 
     /**
@@ -974,19 +1248,49 @@ class Mira_Language_Switcher {
             return $items;
         }
 
+        // Get enabled languages
+        $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
+
         // Get flag type (emoji or text)
         $flag_type = get_option('mira_ls_menu_flag_type', 'emoji');
 
-        // Generate shortcodes based on type
-        if ($flag_type === 'text') {
-            $flags = do_shortcode('[lang_flag_en type="text"] [lang_flag_it type="text"] [lang_flag_es type="text"]');
-        } else {
-            $flags = do_shortcode('[lang_flag_en] [lang_flag_it] [lang_flag_es]');
+        // Flag emojis mapping
+        $flag_emojis = array(
+            'en' => '🇬🇧',
+            'es' => '🇪🇸',
+            'fr' => '🇫🇷',
+            'de' => '🇩🇪',
+            'it' => '🇮🇹',
+            'pt' => '🇵🇹',
+            'ru' => '🇷🇺',
+            'ja' => '🇯🇵',
+            'zh' => '🇨🇳',
+            'ar' => '🇸🇦'
+        );
+
+        // Generate flags for each enabled language
+        $flags = '';
+        foreach ($enabled_languages as $lang) {
+            $url = $this->get_language_url($lang);
+            $current_lang = $this->get_current_language();
+            $is_current = ($current_lang === $lang);
+
+            if ($flag_type === 'text') {
+                $label = strtoupper($lang);
+            } else {
+                $label = isset($flag_emojis[$lang]) ? $flag_emojis[$lang] : strtoupper($lang);
+            }
+
+            if ($is_current) {
+                $flags .= '<span class="lang-flag-' . esc_attr($lang) . ' current-lang">' . $label . '</span> ';
+            } else {
+                $flags .= '<a href="' . esc_url($url) . '" class="lang-flag-' . esc_attr($lang) . '">' . $label . '</a> ';
+            }
         }
 
         // Wrap in menu item
         $lang_item = '<li class="menu-item menu-item-type-custom menu-item-language-switcher">';
-        $lang_item .= $flags;
+        $lang_item .= trim($flags);
         $lang_item .= '</li>';
 
         // Add to end of menu
@@ -1038,67 +1342,83 @@ class Mira_Language_Switcher {
     /**
      * Get URL for current page in specified language
      *
-     * @param string $target_lang Target language code (en, it, es)
+     * @param string $target_lang Target language code (en, it, es, etc.)
      * @return string|false URL or false if not available
      */
     private function get_language_url($target_lang) {
+        // Get default language
+        $default_language = get_option('mira_ls_default_language', 'en');
+
         // Get current page ID
         $current_page_id = get_the_ID();
         if (!$current_page_id) {
-            return home_url('/' . ($target_lang !== 'en' ? $target_lang . '/' : ''));
+            // Return homepage with language prefix (always include prefix now)
+            return home_url('/' . $target_lang . '/');
         }
 
         // Get current page language
         $current_lang = self::get_page_language($current_page_id);
 
-        // If target is current language, return current URL
-        if ($target_lang === $current_lang) {
-            return get_permalink($current_page_id);
+        // Get current page slug
+        $current_page = get_post($current_page_id);
+        if (!$current_page) {
+            return home_url('/' . $target_lang . '/');
         }
 
-        // If current page is English and we want a translation
-        if ($current_lang === 'en' && $target_lang !== 'en') {
-            $translated_id = self::get_translation($current_page_id, $target_lang);
-            if ($translated_id) {
-                $current_slug = get_post($current_page_id)->post_name;
+        // If current page is in default language
+        if ($current_lang === $default_language) {
+            $current_slug = $current_page->post_name;
+
+            if ($target_lang === $default_language) {
+                // Same language - return URL with language prefix
                 return home_url('/' . $target_lang . '/' . $current_slug . '/');
+            } else {
+                // Different language - find translation
+                $translated_id = self::get_translation($current_page_id, $target_lang);
+                if ($translated_id) {
+                    return home_url('/' . $target_lang . '/' . $current_slug . '/');
+                }
+                // No translation, return language homepage
+                return home_url('/' . $target_lang . '/');
             }
-            // No translation, return language homepage
+        }
+
+        // Current page is a translation
+        // Find the default language page by reverse lookup
+        $links = get_option(MIRA_LS_TRANSLATIONS_OPTION, array());
+        $default_page_id = null;
+
+        foreach ($links as $def_id => $translations) {
+            if (isset($translations[$current_lang]) && $translations[$current_lang] == $current_page_id) {
+                $default_page_id = $def_id;
+                break;
+            }
+        }
+
+        if (!$default_page_id) {
+            // Can't find default page, return language homepage
             return home_url('/' . $target_lang . '/');
         }
 
-        // If current page is translated and we want English
-        if ($current_lang !== 'en' && $target_lang === 'en') {
-            // Find the English page by reverse lookup
-            $links = get_option(MIRA_LS_TRANSLATIONS_OPTION, array());
-            foreach ($links as $en_id => $translations) {
-                if (isset($translations[$current_lang]) && $translations[$current_lang] == $current_page_id) {
-                    return get_permalink($en_id);
-                }
-            }
-            // No English version found, return homepage
-            return home_url('/');
-        }
-
-        // If current page is translated and we want another translation
-        if ($current_lang !== 'en' && $target_lang !== 'en') {
-            // Find the English page first
-            $links = get_option(MIRA_LS_TRANSLATIONS_OPTION, array());
-            foreach ($links as $en_id => $translations) {
-                if (isset($translations[$current_lang]) && $translations[$current_lang] == $current_page_id) {
-                    // Found English page, now get other translation
-                    if (isset($translations[$target_lang])) {
-                        $en_slug = get_post($en_id)->post_name;
-                        return home_url('/' . $target_lang . '/' . $en_slug . '/');
-                    }
-                    break;
-                }
-            }
-            // No translation, return language homepage
+        $default_page = get_post($default_page_id);
+        if (!$default_page) {
             return home_url('/' . $target_lang . '/');
         }
 
-        return false;
+        $default_slug = $default_page->post_name;
+
+        // If target is default language
+        if ($target_lang === $default_language) {
+            return home_url('/' . $target_lang . '/' . $default_slug . '/');
+        }
+
+        // If target is another translation
+        if (isset($links[$default_page_id][$target_lang])) {
+            return home_url('/' . $target_lang . '/' . $default_slug . '/');
+        }
+
+        // No translation exists, return language homepage
+        return home_url('/' . $target_lang . '/');
     }
 
     /**
