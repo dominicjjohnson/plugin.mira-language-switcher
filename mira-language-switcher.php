@@ -3,12 +3,15 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://example.com/mira-language-switcher
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: Your Name
  * Author URI: https://example.com
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: mira-language-switcher
+ *
+ * Changelog:
+ * 1.1.0 - Added language-specific menu locations and dynamic language support based on settings
  */
 
 // Exit if accessed directly
@@ -17,7 +20,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.0.0');
+define('MIRA_LS_VERSION', '1.1.0');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
