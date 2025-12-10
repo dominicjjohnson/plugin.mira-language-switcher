@@ -906,6 +906,7 @@ class Mira_Language_Switcher {
     public function add_language_metabox() {
         $post_types = array('page', 'post');
 
+        // Add to sidebar
         foreach ($post_types as $post_type) {
             add_meta_box(
                 'mira_page_language',
@@ -913,6 +914,19 @@ class Mira_Language_Switcher {
                 array($this, 'render_language_metabox'),
                 $post_type,
                 'side',
+                'high'
+            );
+        }
+
+        // WPBakery/Visual Composer compatibility - also add to normal context
+        // WPBakery backend editor often hides sidebar metaboxes
+        foreach ($post_types as $post_type) {
+            add_meta_box(
+                'mira_page_language_main',
+                __('Page Language', 'mira-language-switcher'),
+                array($this, 'render_language_metabox'),
+                $post_type,
+                'normal',
                 'high'
             );
         }
