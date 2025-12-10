@@ -904,14 +904,18 @@ class Mira_Language_Switcher {
      * Add language metabox to page edit screen
      */
     public function add_language_metabox() {
-        add_meta_box(
-            'mira_page_language',
-            __('Language', 'mira-language-switcher'),
-            array($this, 'render_language_metabox'),
-            'page',
-            'side',
-            'high'
-        );
+        $post_types = array('page', 'post');
+
+        foreach ($post_types as $post_type) {
+            add_meta_box(
+                'mira_page_language',
+                __('Language', 'mira-language-switcher'),
+                array($this, 'render_language_metabox'),
+                $post_type,
+                'side',
+                'high'
+            );
+        }
     }
 
     /**
@@ -1002,12 +1006,14 @@ class Mira_Language_Switcher {
         }
 
         // Check user permissions
-        if (!current_user_can('edit_page', $post_id)) {
+        $post_type = get_post_type($post_id);
+        $post_type_object = get_post_type_object($post_type);
+        if (!current_user_can($post_type_object->cap->edit_post, $post_id)) {
             return;
         }
 
-        // Check if this is a page
-        if (get_post_type($post_id) !== 'page') {
+        // Check if this is a supported post type
+        if (!in_array($post_type, array('page', 'post'))) {
             return;
         }
 
