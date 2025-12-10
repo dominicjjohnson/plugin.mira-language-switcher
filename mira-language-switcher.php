@@ -402,7 +402,34 @@ class Mira_Language_Switcher {
 
         // Get the page name from query
         $pagename = get_query_var('pagename');
+
+        // Handle front page (homepage) specially
         if (empty($pagename)) {
+            // Check if this is a front page request (just the language prefix with no page)
+            $page_on_front = get_option('page_on_front');
+
+            if ($page_on_front) {
+                // If we're on a language URL like /en/ or /it/ with no page
+                // and WordPress has a static front page set, load the appropriate translation
+
+                if ($lang === $default_language) {
+                    // Show the default language front page
+                    $query->set('page_id', $page_on_front);
+                    $query->set('post_type', 'page');
+                } else {
+                    // Get the translated front page for this language
+                    $translated_id = self::get_translation($page_on_front, $lang);
+
+                    if ($translated_id) {
+                        $query->set('page_id', $translated_id);
+                        $query->set('post_type', 'page');
+                    } else {
+                        // No translation exists, show default language front page
+                        $query->set('page_id', $page_on_front);
+                        $query->set('post_type', 'page');
+                    }
+                }
+            }
             return;
         }
 
@@ -1359,6 +1386,38 @@ class Mira_Language_Switcher {
             return home_url('/' . $target_lang . '/');
         }
 
+        // Check if current page is the front page
+        $page_on_front = get_option('page_on_front');
+        if ($page_on_front && $current_page_id == $page_on_front) {
+            // This is the front page in the default language
+            // Get the translated front page if it exists
+            if ($target_lang === $default_language) {
+                // Same language - return homepage with language prefix
+                return home_url('/' . $target_lang . '/');
+            } else {
+                // Different language - check if translation exists
+                $translated_id = self::get_translation($page_on_front, $target_lang);
+                if ($translated_id) {
+                    // Translation exists - return language homepage
+                    return home_url('/' . $target_lang . '/');
+                }
+                // No translation, return language homepage anyway
+                return home_url('/' . $target_lang . '/');
+            }
+        }
+
+        // Check if current page is a translated front page
+        $links = get_option(MIRA_LS_TRANSLATIONS_OPTION, array());
+        if (isset($links[$page_on_front])) {
+            foreach ($links[$page_on_front] as $lang => $translated_front_id) {
+                if ($translated_front_id == $current_page_id) {
+                    // Current page is a translated front page
+                    // Return the target language homepage
+                    return home_url('/' . $target_lang . '/');
+                }
+            }
+        }
+
         // Get current page language
         $current_lang = self::get_page_language($current_page_id);
 
@@ -1388,7 +1447,6 @@ class Mira_Language_Switcher {
 
         // Current page is a translation
         // Find the default language page by reverse lookup
-        $links = get_option(MIRA_LS_TRANSLATIONS_OPTION, array());
         $default_page_id = null;
 
         foreach ($links as $def_id => $translations) {
