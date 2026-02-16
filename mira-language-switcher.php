@@ -87,6 +87,12 @@ class Mira_Language_Switcher {
         add_filter('the_title', array($this, 'modify_title_with_language'), 10, 2);
         add_filter('wp_title', array($this, 'modify_wp_title'), 10, 2);
 
+        // Language column in pages list
+        add_filter('manage_pages_columns', array($this, 'add_language_column'));
+        add_action('manage_pages_custom_column', array($this, 'render_language_column'), 10, 2);
+        add_filter('manage_edit-page_sortable_columns', array($this, 'sortable_language_column'));
+        add_action('pre_get_posts', array($this, 'sort_by_language_column'));
+
         // Activation/Deactivation hooks
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
@@ -150,6 +156,8 @@ class Mira_Language_Switcher {
         register_setting('mira_ls_settings_group', 'mira_ls_menu_flag_type');
         register_setting('mira_ls_settings_group', 'mira_ls_auto_redirect');
         register_setting('mira_ls_settings_group', 'mira_ls_show_lang_in_title');
+        register_setting('mira_ls_settings_group', 'mira_ls_header_pages');
+        register_setting('mira_ls_settings_group', 'mira_ls_footer_pages');
     }
 
     /**
@@ -285,6 +293,8 @@ class Mira_Language_Switcher {
             if (!headers_sent()) {
                 setcookie('mira_language', $detected_lang, time() + (30 * 24 * 60 * 60), '/');
             }
+            // Update superglobal so auto-redirect sees the new value in this request
+            $_COOKIE['mira_language'] = $detected_lang;
 
             return $detected_lang;
         }
@@ -1341,15 +1351,27 @@ class Mira_Language_Switcher {
         ?>
         <style>
         .menu-item-language-switcher {
+            float: left;
             display: flex !important;
-            align-items: center;
+            align-items: stretch;
         }
         .menu-item-language-switcher a,
         .menu-item-language-switcher span {
-            font-size: 22px;
+            display: flex;
+            align-items: center;
+            padding: 0.75em 6px;
+            font-size: 20px;
+            line-height: 1;
             text-decoration: none;
-            margin: 0 8px;
             transition: opacity 0.3s ease;
+        }
+        .menu-item-language-switcher img.emoji {
+            height: 20px;
+            width: 20px;
+            margin: 0;
+            padding: 0;
+            vertical-align: middle;
+            box-sizing: border-box;
         }
         .menu-item-language-switcher a:hover {
             opacity: 0.7;
@@ -1358,11 +1380,13 @@ class Mira_Language_Switcher {
             opacity: 0.5;
             cursor: default;
         }
-        @media (max-width: 768px) {
+        @media (max-width: 1031px) {
+            .menu-item-language-switcher {
+                float: none;
+            }
             .menu-item-language-switcher a,
             .menu-item-language-switcher span {
-                font-size: 18px;
-                margin: 0 5px;
+                padding: 0.5em 0.75em;
             }
         }
         </style>
@@ -1561,6 +1585,140 @@ class Mira_Language_Switcher {
         }
 
         return '<a href="' . esc_url($url) . '" class="' . esc_attr($atts['class']) . '">' . $label . '</a>';
+    }
+
+    /**
+     * Add Language column to pages list.
+     */
+    public function add_language_column($columns) {
+        $new_columns = array();
+        foreach ($columns as $key => $label) {
+            $new_columns[$key] = $label;
+            if ($key === 'title') {
+                $new_columns['page_language'] = __('Lang', 'mira-language-switcher');
+            }
+        }
+        return $new_columns;
+    }
+
+    /**
+     * Render the Language column content.
+     */
+    public function render_language_column($column, $post_id) {
+        if ($column !== 'page_language') {
+            return;
+        }
+
+        $lang = self::get_page_language($post_id);
+
+        $flag_emojis = array(
+            'en' => "\xF0\x9F\x87\xAC\xF0\x9F\x87\xA7",
+            'es' => "\xF0\x9F\x87\xAA\xF0\x9F\x87\xB8",
+            'fr' => "\xF0\x9F\x87\xAB\xF0\x9F\x87\xB7",
+            'de' => "\xF0\x9F\x87\xA9\xF0\x9F\x87\xAA",
+            'it' => "\xF0\x9F\x87\xAE\xF0\x9F\x87\xB9",
+            'pt' => "\xF0\x9F\x87\xB5\xF0\x9F\x87\xB9",
+            'ru' => "\xF0\x9F\x87\xB7\xF0\x9F\x87\xBA",
+            'ja' => "\xF0\x9F\x87\xAF\xF0\x9F\x87\xB5",
+            'zh' => "\xF0\x9F\x87\xA8\xF0\x9F\x87\xB3",
+            'ar' => "\xF0\x9F\x87\xB8\xF0\x9F\x87\xA6",
+        );
+
+        $flag = isset($flag_emojis[$lang]) ? $flag_emojis[$lang] : '';
+        echo $flag . ' <strong>' . esc_html(strtoupper($lang)) . '</strong>';
+    }
+
+    /**
+     * Make the Language column sortable.
+     */
+    public function sortable_language_column($columns) {
+        $columns['page_language'] = 'page_language';
+        return $columns;
+    }
+
+    /**
+     * Handle sorting by language column.
+     */
+    public function sort_by_language_column($query) {
+        if (!is_admin() || !$query->is_main_query()) {
+            return;
+        }
+
+        if ($query->get('orderby') === 'page_language') {
+            $query->set('meta_key', '_mira_page_language');
+            $query->set('orderby', 'meta_value');
+        }
+    }
+
+    /**
+     * Get the header page post for the current language.
+     *
+     * Returns the configured header page for the current language,
+     * falling back to the page with slug 'header'.
+     *
+     * @return WP_Post|false
+     */
+    public static function get_header_page() {
+        return self::get_role_page('header');
+    }
+
+    /**
+     * Get the footer page post for the current language.
+     *
+     * Returns the configured footer page for the current language,
+     * falling back to the page with slug 'footer'.
+     *
+     * @return WP_Post|false
+     */
+    public static function get_footer_page() {
+        return self::get_role_page('footer');
+    }
+
+    /**
+     * Get a role-based page (header or footer) for the current language.
+     *
+     * @param string $role 'header' or 'footer'
+     * @return WP_Post|false
+     */
+    private static function get_role_page($role) {
+        $option_key = ($role === 'header') ? 'mira_ls_header_pages' : 'mira_ls_footer_pages';
+        $pages_by_lang = get_option($option_key, array());
+
+        // Detect current language
+        $current_lang = 'en';
+        if (isset($_COOKIE['mira_language'])) {
+            $current_lang = sanitize_text_field($_COOKIE['mira_language']);
+        }
+        // URL detection takes priority over cookie
+        $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
+        $request_uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
+        $home_path = parse_url(home_url(), PHP_URL_PATH);
+        if ($home_path) {
+            $home_path = rtrim($home_path, '/');
+        }
+        $pattern = '#^' . preg_quote($home_path, '#') . '/(' . implode('|', $enabled_languages) . ')(/|$)#';
+        if (preg_match($pattern, $request_uri, $matches)) {
+            $current_lang = $matches[1];
+        }
+
+        // Check if there's a configured page for this language
+        if (!empty($pages_by_lang[$current_lang])) {
+            $page_id = absint($pages_by_lang[$current_lang]);
+            $page = get_post($page_id);
+            if ($page && $page->post_status === 'publish') {
+                return $page;
+            }
+        }
+
+        // Fallback: look up by slug
+        $fallback = get_posts(array(
+            'name'        => $role,
+            'post_type'   => 'page',
+            'post_status' => 'publish',
+            'numberposts' => 1,
+        ));
+
+        return $fallback ? $fallback[0] : false;
     }
 }
 

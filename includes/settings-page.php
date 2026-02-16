@@ -15,6 +15,26 @@ if (isset($_POST['mira_ls_save_settings']) && check_admin_referer('mira_ls_setti
     update_option('mira_ls_auto_redirect', isset($_POST['mira_ls_auto_redirect']) ? 'yes' : 'no');
     update_option('mira_ls_show_lang_in_title', isset($_POST['mira_ls_show_lang_in_title']) ? 'yes' : 'no');
 
+    // Save header/footer page assignments
+    $header_pages = array();
+    $footer_pages = array();
+    if (isset($_POST['mira_ls_header_pages']) && is_array($_POST['mira_ls_header_pages'])) {
+        foreach ($_POST['mira_ls_header_pages'] as $lang => $page_id) {
+            if (!empty($page_id)) {
+                $header_pages[sanitize_text_field($lang)] = absint($page_id);
+            }
+        }
+    }
+    if (isset($_POST['mira_ls_footer_pages']) && is_array($_POST['mira_ls_footer_pages'])) {
+        foreach ($_POST['mira_ls_footer_pages'] as $lang => $page_id) {
+            if (!empty($page_id)) {
+                $footer_pages[sanitize_text_field($lang)] = absint($page_id);
+            }
+        }
+    }
+    update_option('mira_ls_header_pages', $header_pages);
+    update_option('mira_ls_footer_pages', $footer_pages);
+
     echo '<div class="notice notice-success is-dismissible"><p>' . __('Settings saved successfully!', 'mira-language-switcher') . '</p></div>';
 }
 
@@ -27,6 +47,17 @@ $menu_location = get_option('mira_ls_menu_location', 'all');
 $menu_flag_type = get_option('mira_ls_menu_flag_type', 'emoji');
 $auto_redirect = get_option('mira_ls_auto_redirect', 'no');
 $show_lang_in_title = get_option('mira_ls_show_lang_in_title', 'no');
+$header_pages = get_option('mira_ls_header_pages', array());
+$footer_pages = get_option('mira_ls_footer_pages', array());
+
+// Get all published pages for dropdown
+$all_pages = get_posts(array(
+    'post_type'   => 'page',
+    'post_status' => 'publish',
+    'numberposts' => -1,
+    'orderby'     => 'title',
+    'order'       => 'ASC',
+));
 
 // Get registered menu locations
 $menu_locations = get_registered_nav_menus();
@@ -213,6 +244,48 @@ $available_languages = array(
                     </p>
                 </td>
             </tr>
+        </table>
+
+        <h2><?php _e('Header & Footer Pages', 'mira-language-switcher'); ?></h2>
+        <p><?php _e('Assign a different header and footer page for each language. These pages should be built with WPBakery/Visual Composer. If no page is set, the default "header" / "footer" slug page will be used.', 'mira-language-switcher'); ?></p>
+
+        <table class="form-table">
+            <?php foreach ($enabled_languages as $lang_code):
+                $lang_name = isset($available_languages[$lang_code]) ? $available_languages[$lang_code] : strtoupper($lang_code);
+                $selected_header = isset($header_pages[$lang_code]) ? $header_pages[$lang_code] : '';
+                $selected_footer = isset($footer_pages[$lang_code]) ? $footer_pages[$lang_code] : '';
+            ?>
+            <tr>
+                <th scope="row">
+                    <?php echo esc_html($lang_name . ' (' . strtoupper($lang_code) . ')'); ?>
+                </th>
+                <td>
+                    <label>
+                        <?php _e('Header Page:', 'mira-language-switcher'); ?>
+                        <select name="mira_ls_header_pages[<?php echo esc_attr($lang_code); ?>]">
+                            <option value=""><?php _e('— Default (slug: header) —', 'mira-language-switcher'); ?></option>
+                            <?php foreach ($all_pages as $page): ?>
+                                <option value="<?php echo esc_attr($page->ID); ?>" <?php selected($selected_header, $page->ID); ?>>
+                                    <?php echo esc_html($page->post_title . ' (ID: ' . $page->ID . ')'); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <br><br>
+                    <label>
+                        <?php _e('Footer Page:', 'mira-language-switcher'); ?>
+                        <select name="mira_ls_footer_pages[<?php echo esc_attr($lang_code); ?>]">
+                            <option value=""><?php _e('— Default (slug: footer) —', 'mira-language-switcher'); ?></option>
+                            <?php foreach ($all_pages as $page): ?>
+                                <option value="<?php echo esc_attr($page->ID); ?>" <?php selected($selected_footer, $page->ID); ?>>
+                                    <?php echo esc_html($page->post_title . ' (ID: ' . $page->ID . ')'); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                </td>
+            </tr>
+            <?php endforeach; ?>
         </table>
 
         <p class="submit">
