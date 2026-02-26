@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://example.com/mira-language-switcher
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.0
+ * Version: 1.2.1
  * Author: Your Name
  * Author URI: https://example.com
  * License: GPL v2 or later
@@ -11,6 +11,7 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.1 - Fix menu hover background bleeding across both language flags
  * 1.2.0 - Added translation link dropdowns to page editor meta box
  * 1.1.0 - Added language-specific menu locations and dynamic language support based on settings
  */
@@ -1513,6 +1514,11 @@ class Mira_Language_Switcher {
             padding: 0;
             vertical-align: middle;
             box-sizing: border-box;
+        }
+        .menu-item-language-switcher:hover,
+        .menu-item-language-switcher:focus,
+        .menu-item-language-switcher:focus-within {
+            background: transparent !important;
         }
         .menu-item-language-switcher a:hover {
             opacity: 0.7;
