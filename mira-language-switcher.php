@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://example.com/mira-language-switcher
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: Your Name
  * Author URI: https://example.com
  * License: GPL v2 or later
@@ -11,6 +11,7 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.0 - Added translation link dropdowns to page editor meta box
  * 1.1.0 - Added language-specific menu locations and dynamic language support based on settings
  */
 
