@@ -27,6 +27,9 @@ define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
 define('MIRA_LS_SUPPORTED_LANGUAGES', array('en', 'it', 'es'));
 define('MIRA_LS_TRANSLATIONS_OPTION', 'mira_ls_translation_links');
 
+// Includes
+require_once MIRA_LS_PLUGIN_DIR . 'includes/wpml-migration.php';
+
 /**
  * Main Mira Language Switcher Class
  */
@@ -141,6 +144,16 @@ class Mira_Language_Switcher {
             'manage_options',
             'mira-language-switcher-translations',
             array($this, 'translation_links_page')
+        );
+
+        // Add WPML Import submenu
+        add_submenu_page(
+            'mira-language-switcher',
+            __('WPML Import', 'mira-language-switcher'),
+            __('WPML Import', 'mira-language-switcher'),
+            'manage_options',
+            'mira-language-switcher-wpml',
+            'mira_ls_wpml_migration_page'
         );
     }
 
