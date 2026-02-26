@@ -999,6 +999,45 @@ class Mira_Language_Switcher {
             <p class="description">
                 <?php _e('Select the language this page is written in.', 'mira-language-switcher'); ?>
             </p>
+
+            <?php
+            // Translation links section
+            $other_languages = array_diff( $enabled_languages, array( $current_language ) );
+            if ( ! empty( $other_languages ) ) :
+            ?>
+            <hr style="margin: 12px 0;">
+            <p><strong><?php _e( 'Translation Links:', 'mira-language-switcher' ); ?></strong></p>
+            <?php foreach ( $other_languages as $other_lang ) :
+                $lang_name     = isset( $all_language_names[ $other_lang ] ) ? $all_language_names[ $other_lang ] : strtoupper( $other_lang );
+                $pages_in_lang = get_posts( array(
+                    'post_type'   => 'page',
+                    'post_status' => array( 'publish', 'draft' ),
+                    'meta_key'    => '_mira_page_language',
+                    'meta_value'  => $other_lang,
+                    'numberposts' => -1,
+                    'orderby'     => 'title',
+                    'order'       => 'ASC',
+                ) );
+                $linked_id = self::find_linked_translation( $post->ID, $current_language, $other_lang, $default_language );
+            ?>
+            <p style="margin: 6px 0 3px;">
+                <label for="mira_ls_trans_<?php echo esc_attr( $other_lang ); ?>">
+                    <?php echo esc_html( $lang_name ); ?>:
+                </label>
+            </p>
+            <select name="mira_ls_trans_<?php echo esc_attr( $other_lang ); ?>"
+                    id="mira_ls_trans_<?php echo esc_attr( $other_lang ); ?>"
+                    style="width: 100%; margin-bottom: 8px;">
+                <option value="0">— <?php esc_html_e( 'None', 'mira-language-switcher' ); ?> —</option>
+                <?php foreach ( $pages_in_lang as $p ) : ?>
+                    <option value="<?php echo esc_attr( $p->ID ); ?>" <?php selected( $linked_id, $p->ID ); ?>>
+                        <?php echo esc_html( $p->post_title ); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <?php endforeach; ?>
+            <?php endif; ?>
+
         </div>
         <?php
     }
@@ -1046,6 +1085,94 @@ class Mira_Language_Switcher {
                 update_post_meta($post_id, '_mira_page_language', $language);
             }
         }
+
+        // Save translation links
+        $default_lang    = get_option( 'mira_ls_default_language', 'en' );
+        $enabled_langs   = get_option( 'mira_ls_enabled_languages', array( 'en' ) );
+        $saved_lang      = get_post_meta( $post_id, '_mira_page_language', true );
+        $links           = get_option( MIRA_LS_TRANSLATIONS_OPTION, array() );
+        $other_languages = array_diff( $enabled_langs, array( $saved_lang ) );
+        $changed         = false;
+
+        foreach ( $other_languages as $other_lang ) {
+            $field = 'mira_ls_trans_' . $other_lang;
+            if ( ! isset( $_POST[ $field ] ) ) {
+                continue;
+            }
+            $selected_id = absint( $_POST[ $field ] );
+
+            if ( $saved_lang === $default_lang ) {
+                // This page IS the default language — it is the key in $links.
+                if ( $selected_id > 0 ) {
+                    if ( ! isset( $links[ $post_id ] ) ) {
+                        $links[ $post_id ] = array();
+                    }
+                    $links[ $post_id ][ $other_lang ] = $selected_id;
+                } else {
+                    unset( $links[ $post_id ][ $other_lang ] );
+                    if ( isset( $links[ $post_id ] ) && empty( $links[ $post_id ] ) ) {
+                        unset( $links[ $post_id ] );
+                    }
+                }
+                $changed = true;
+
+            } elseif ( $other_lang === $default_lang ) {
+                // This page is non-default; the selected page is the default-language page (the key).
+                // Remove this page from any existing group first.
+                foreach ( $links as $key => $translations ) {
+                    if ( isset( $translations[ $saved_lang ] ) && (int) $translations[ $saved_lang ] === $post_id ) {
+                        unset( $links[ $key ][ $saved_lang ] );
+                        if ( empty( $links[ $key ] ) ) {
+                            unset( $links[ $key ] );
+                        }
+                    }
+                }
+                if ( $selected_id > 0 ) {
+                    if ( ! isset( $links[ $selected_id ] ) ) {
+                        $links[ $selected_id ] = array();
+                    }
+                    $links[ $selected_id ][ $saved_lang ] = $post_id;
+                }
+                $changed = true;
+            }
+            // Note: linking two non-default-language pages to each other (e.g. ES↔FR
+            // when IT is default) is not supported here — use the Settings page.
+        }
+
+        if ( $changed ) {
+            update_option( MIRA_LS_TRANSLATIONS_OPTION, $links );
+        }
+    }
+
+    /**
+     * Find the linked translation page for a given page, used by the editor meta box.
+     * Handles default-language pages (direct lookup) and non-default pages (reverse lookup).
+     *
+     * @param int    $post_id      The current page ID.
+     * @param string $current_lang The language of the current page.
+     * @param string $target_lang  The language we want the translation for.
+     * @param string $default_lang The site default language.
+     * @return int   The linked page ID, or 0 if none.
+     */
+    private static function find_linked_translation( $post_id, $current_lang, $target_lang, $default_lang ) {
+        $links = get_option( MIRA_LS_TRANSLATIONS_OPTION, array() );
+
+        if ( $current_lang === $default_lang ) {
+            // Direct lookup: this page is the key.
+            return isset( $links[ $post_id ][ $target_lang ] ) ? (int) $links[ $post_id ][ $target_lang ] : 0;
+        }
+
+        // Reverse lookup: find the group where this page appears as a translation.
+        foreach ( $links as $default_id => $translations ) {
+            if ( isset( $translations[ $current_lang ] ) && (int) $translations[ $current_lang ] === $post_id ) {
+                if ( $target_lang === $default_lang ) {
+                    return (int) $default_id;
+                }
+                return isset( $translations[ $target_lang ] ) ? (int) $translations[ $target_lang ] : 0;
+            }
+        }
+
+        return 0;
     }
 
     /**
