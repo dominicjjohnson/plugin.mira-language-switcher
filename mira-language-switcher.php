@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://example.com/mira-language-switcher
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.2
+ * Version: 1.2.3
  * Author: Your Name
  * Author URI: https://example.com
  * License: GPL v2 or later
@@ -11,6 +11,7 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.3 - Fix language detection in get_role_page; add visible flag hover effect
  * 1.2.2 - Add miramedia_header_page and miramedia_footer_page filters for theme integration
  * 1.2.1 - Fix menu hover background bleeding across both language flags
  * 1.2.0 - Added translation link dropdowns to page editor meta box
@@ -1510,7 +1511,8 @@ class Mira_Language_Switcher {
             font-size: 20px;
             line-height: 1;
             text-decoration: none;
-            transition: opacity 0.3s ease;
+            border-radius: 4px;
+            transition: background-color 0.2s ease, opacity 0.2s ease;
         }
         .menu-item-language-switcher img.emoji {
             height: 20px;
@@ -1526,10 +1528,10 @@ class Mira_Language_Switcher {
             background: transparent !important;
         }
         .menu-item-language-switcher a:hover {
-            opacity: 0.7;
+            background-color: rgba(0, 0, 0, 0.12);
         }
         .menu-item-language-switcher .current-lang {
-            opacity: 0.5;
+            opacity: 0.45;
             cursor: default;
         }
         @media (max-width: 1031px) {
@@ -1836,21 +1838,20 @@ class Mira_Language_Switcher {
         $option_key = ($role === 'header') ? 'mira_ls_header_pages' : 'mira_ls_footer_pages';
         $pages_by_lang = get_option($option_key, array());
 
-        // Detect current language
-        $current_lang = 'en';
-        if (isset($_COOKIE['mira_language'])) {
-            $current_lang = sanitize_text_field($_COOKIE['mira_language']);
+        // Use the 'lang' query var set by the rewrite rules — most reliable source.
+        $current_lang = get_query_var('lang');
+
+        // Fall back to cookie if query var not set (e.g. admin-ajax or unusual context).
+        if (empty($current_lang)) {
+            $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
+            if (isset($_COOKIE['mira_language']) && in_array($_COOKIE['mira_language'], $enabled_languages, true)) {
+                $current_lang = sanitize_text_field($_COOKIE['mira_language']);
+            }
         }
-        // URL detection takes priority over cookie
-        $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
-        $request_uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
-        $home_path = parse_url(home_url(), PHP_URL_PATH);
-        if ($home_path) {
-            $home_path = rtrim($home_path, '/');
-        }
-        $pattern = '#^' . preg_quote($home_path, '#') . '/(' . implode('|', $enabled_languages) . ')(/|$)#';
-        if (preg_match($pattern, $request_uri, $matches)) {
-            $current_lang = $matches[1];
+
+        // Final fallback: site default language.
+        if (empty($current_lang)) {
+            $current_lang = get_option('mira_ls_default_language', 'en');
         }
 
         // Check if there's a configured page for this language
