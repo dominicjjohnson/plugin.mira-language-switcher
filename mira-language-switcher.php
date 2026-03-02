@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://example.com/mira-language-switcher
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.3
+ * Version: 1.2.4
  * Author: Your Name
  * Author URI: https://example.com
  * License: GPL v2 or later
@@ -11,6 +11,7 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.4 - Wrap non-current language flag links in span for consistent CSS alignment
  * 1.2.3 - Fix language detection in get_role_page; add visible flag hover effect
  * 1.2.2 - Add miramedia_header_page and miramedia_footer_page filters for theme integration
  * 1.2.1 - Fix menu hover background bleeding across both language flags
