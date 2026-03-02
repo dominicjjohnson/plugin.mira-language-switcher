@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: Mira Language Switcher
- * Plugin URI: https://example.com/mira-language-switcher
+ * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
  * Version: 1.2.4
- * Author: Your Name
- * Author URI: https://example.com
+ * Author: Dominic Johnson / Miramedia
+ * Author URI: https://miramedia.net
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: mira-language-switcher
