@@ -1483,7 +1483,7 @@ class Mira_Language_Switcher {
             if ($is_current) {
                 $flags .= '<span class="lang-flag-' . esc_attr($lang) . ' current-lang">' . $label . '</span> ';
             } else {
-                $flags .= '<a href="' . esc_url($url) . '" class="lang-flag-' . esc_attr($lang) . '">' . $label . '</a> ';
+                $flags .= '<span class="lang-flag-' . esc_attr($lang) . '"><a href="' . esc_url($url) . '">' . $label . '</a></span> ';
             }
         }
 
