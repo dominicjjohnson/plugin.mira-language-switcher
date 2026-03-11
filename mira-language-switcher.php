@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.4
+ * Version: 1.2.5
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,7 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.5 - Fix preg_quote() null deprecation on root domain installs (no subdirectory path)
  * 1.2.4 - Wrap non-current language flag links in span for consistent CSS alignment
  * 1.2.3 - Fix language detection in get_role_page; add visible flag hover effect
  * 1.2.2 - Add miramedia_header_page and miramedia_footer_page filters for theme integration
@@ -25,7 +26,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.1.0');
+define('MIRA_LS_VERSION', '1.2.5');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -309,11 +310,10 @@ class Mira_Language_Switcher {
         $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
         $default_language = get_option('mira_ls_default_language', 'en');
 
-        // Get WordPress home path (handles subdirectory installations)
-        $home_path = parse_url(home_url(), PHP_URL_PATH);
-        if ($home_path) {
-            $home_path = rtrim($home_path, '/');
-        }
+        // Get WordPress home path (handles subdirectory installations).
+        // parse_url() returns null when there is no path (root domain install),
+        // so cast to string before rtrim/preg_quote to avoid PHP 8.1+ deprecation.
+        $home_path = rtrim( (string) parse_url( home_url(), PHP_URL_PATH ), '/' );
 
         // Check for language in URL pattern after the WordPress path
         // Example: /plug/en/about-us/ where /plug is the WordPress subdirectory
@@ -406,10 +406,7 @@ class Mira_Language_Switcher {
         $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
 
         // Check if the requested URL contains a language prefix
-        $home_path = parse_url(home_url(), PHP_URL_PATH);
-        if ($home_path) {
-            $home_path = rtrim($home_path, '/');
-        }
+        $home_path = rtrim( (string) parse_url( home_url(), PHP_URL_PATH ), '/' );
 
         $pattern = '#' . preg_quote($home_path, '#') . '/(' . implode('|', $enabled_languages) . ')(/|$)#';
 
@@ -1229,10 +1226,7 @@ class Mira_Language_Switcher {
         $default_language = get_option('mira_ls_default_language', 'en');
 
         // Get WordPress home path
-        $home_path = parse_url(home_url(), PHP_URL_PATH);
-        if ($home_path) {
-            $home_path = rtrim($home_path, '/');
-        }
+        $home_path = rtrim( (string) parse_url( home_url(), PHP_URL_PATH ), '/' );
 
         // Check if URL already has a language prefix
         $pattern = '#^' . preg_quote($home_path, '#') . '/(' . implode('|', $enabled_languages) . ')(/|$)#';
@@ -1243,7 +1237,7 @@ class Mira_Language_Switcher {
 
         // Check if this is a page request (not homepage, not admin, not wp-content, etc.)
         // Only redirect actual page URLs
-        if (is_404() || is_search() || is_feed()) {
+        if (is_404() || is_search() || is_feed() || (is_singular() && !is_page())) {
             return;
         }
 
@@ -1341,10 +1335,7 @@ class Mira_Language_Switcher {
         $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
         $default_language = get_option('mira_ls_default_language', 'en');
 
-        $home_path = parse_url(home_url(), PHP_URL_PATH);
-        if ($home_path) {
-            $home_path = rtrim($home_path, '/');
-        }
+        $home_path = rtrim( (string) parse_url( home_url(), PHP_URL_PATH ), '/' );
 
         $pattern = '#^' . preg_quote($home_path, '#') . '/(' . implode('|', $enabled_languages) . ')(/|$)#';
 
