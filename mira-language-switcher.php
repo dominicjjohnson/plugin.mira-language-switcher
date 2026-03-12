@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.6
+ * Version: 1.2.7
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,7 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.7 - Performance: cap metabox get_posts to 200, add no_found_rows; static cache in get_role_page()
  * 1.2.6 - Fix get_role_page() picking up translated child pages (e.g. /it/header) as header/footer;
  *         fall back to default language's configured page before slug lookup; restrict slug lookup to top-level pages
  * 1.2.5 - Fix preg_quote() null deprecation on root domain installs (no subdirectory path)
@@ -28,7 +29,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.6');
+define('MIRA_LS_VERSION', '1.2.7');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -1029,13 +1030,15 @@ class Mira_Language_Switcher {
             <?php foreach ( $other_languages as $other_lang ) :
                 $lang_name     = isset( $all_language_names[ $other_lang ] ) ? $all_language_names[ $other_lang ] : strtoupper( $other_lang );
                 $pages_in_lang = get_posts( array(
-                    'post_type'   => 'page',
-                    'post_status' => array( 'publish', 'draft' ),
-                    'meta_key'    => '_mira_page_language',
-                    'meta_value'  => $other_lang,
-                    'numberposts' => -1,
-                    'orderby'     => 'title',
-                    'order'       => 'ASC',
+                    'post_type'      => 'page',
+                    'post_status'    => array( 'publish', 'draft' ),
+                    'meta_key'       => '_mira_page_language',
+                    'meta_value'     => $other_lang,
+                    'numberposts'    => 200,
+                    'orderby'        => 'title',
+                    'order'          => 'ASC',
+                    'no_found_rows'  => true,
+                    'update_post_term_cache' => false,
                 ) );
                 $linked_id = self::find_linked_translation( $post->ID, $current_language, $other_lang, $default_language );
             ?>
@@ -1840,6 +1843,8 @@ class Mira_Language_Switcher {
      * @return WP_Post|false
      */
     private static function get_role_page($role) {
+        static $cache = array();
+
         $option_key = ($role === 'header') ? 'mira_ls_header_pages' : 'mira_ls_footer_pages';
         $pages_by_lang = get_option($option_key, array());
 
@@ -1859,12 +1864,18 @@ class Mira_Language_Switcher {
             $current_lang = get_option('mira_ls_default_language', 'en');
         }
 
+        // Return cached result for this role+language combination.
+        $cache_key = $role . '_' . $current_lang;
+        if (isset($cache[$cache_key])) {
+            return $cache[$cache_key];
+        }
+
         // Check if there's a configured page for this language
         if (!empty($pages_by_lang[$current_lang])) {
             $page_id = absint($pages_by_lang[$current_lang]);
             $page = get_post($page_id);
             if ($page && $page->post_status === 'publish') {
-                return $page;
+                return $cache[$cache_key] = $page;
             }
         }
 
@@ -1876,7 +1887,7 @@ class Mira_Language_Switcher {
             $page_id = absint($pages_by_lang[$default_lang]);
             $page = get_post($page_id);
             if ($page && $page->post_status === 'publish') {
-                return $page;
+                return $cache[$cache_key] = $page;
             }
         }
 
@@ -1890,7 +1901,7 @@ class Mira_Language_Switcher {
             'post_parent' => 0,
         ));
 
-        return $fallback ? $fallback[0] : false;
+        return $cache[$cache_key] = ( $fallback ? $fallback[0] : false );
     }
 }
 
