@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.5
+ * Version: 1.2.6
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,8 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.6 - Fix get_role_page() picking up translated child pages (e.g. /it/header) as header/footer;
+ *         fall back to default language's configured page before slug lookup; restrict slug lookup to top-level pages
  * 1.2.5 - Fix preg_quote() null deprecation on root domain installs (no subdirectory path)
  * 1.2.4 - Wrap non-current language flag links in span for consistent CSS alignment
  * 1.2.3 - Fix language detection in get_role_page; add visible flag hover effect
@@ -26,7 +28,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.5');
+define('MIRA_LS_VERSION', '1.2.6');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -1866,12 +1868,26 @@ class Mira_Language_Switcher {
             }
         }
 
-        // Fallback: look up by slug
+        // Fall back to the default language's configured page before doing a slug lookup.
+        // This prevents non-default language pages (e.g. /it/header) being picked up
+        // when no language-specific page is explicitly configured.
+        $default_lang = get_option('mira_ls_default_language', 'en');
+        if ($current_lang !== $default_lang && !empty($pages_by_lang[$default_lang])) {
+            $page_id = absint($pages_by_lang[$default_lang]);
+            $page = get_post($page_id);
+            if ($page && $page->post_status === 'publish') {
+                return $page;
+            }
+        }
+
+        // Last resort: look up by slug — restrict to top-level pages (post_parent = 0)
+        // to avoid matching translated child pages that share the same slug.
         $fallback = get_posts(array(
             'name'        => $role,
             'post_type'   => 'page',
             'post_status' => 'publish',
             'numberposts' => 1,
+            'post_parent' => 0,
         ));
 
         return $fallback ? $fallback[0] : false;
