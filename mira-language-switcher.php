@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.7
+ * Version: 1.2.8
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,7 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.8 - Fix is_singular() flags on language-prefix URLs so WPBakery generates CSS for translated pages
  * 1.2.7 - Performance: cap metabox get_posts to 200, add no_found_rows; static cache in get_role_page()
  * 1.2.6 - Fix get_role_page() picking up translated child pages (e.g. /it/header) as header/footer;
  *         fall back to default language's configured page before slug lookup; restrict slug lookup to top-level pages
@@ -29,7 +30,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.7');
+define('MIRA_LS_VERSION', '1.2.8');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -473,6 +474,16 @@ class Mira_Language_Switcher {
                     }
                 }
             }
+            // parse_query() fires before pre_get_posts, so language-prefix homepage
+            // URLs (/it/) don't automatically get is_singular/is_page set.
+            // Fix the flags here so WPBakery and other plugins behave correctly.
+            if ( $query->get( 'page_id' ) ) {
+                $query->is_singular = true;
+                $query->is_page     = true;
+                $query->is_home     = false;
+                $query->is_archive  = false;
+                $query->is_404      = false;
+            }
             return;
         }
 
@@ -495,6 +506,13 @@ class Mira_Language_Switcher {
         if ($translated_id) {
             $query->set('page_id', $translated_id);
             $query->set('pagename', '');
+            // Ensure is_singular is set — parse_query() doesn't know about the
+            // page_id we're injecting here, so flags must be set manually.
+            $query->is_singular = true;
+            $query->is_page     = true;
+            $query->is_home     = false;
+            $query->is_archive  = false;
+            $query->is_404      = false;
         }
     }
 
