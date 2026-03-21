@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.11
+ * Version: 1.2.12
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -93,7 +93,7 @@ class Mira_Language_Switcher {
         add_filter('wp_nav_menu_items', array($this, 'add_flags_to_menu'), 10, 2);
         add_action('wp_head', array($this, 'menu_flags_css'));
 
-        // Redirect URLs without language prefix to include default language
+        // Redirect old /default-lang/slug/ URLs to bare /slug/ (WPML-style: default = no prefix)
         add_action('template_redirect', array($this, 'redirect_to_language_prefix'), 5);
 
         // Automatic redirects based on cookie
@@ -341,12 +341,8 @@ class Mira_Language_Switcher {
             return $detected_lang;
         }
 
-        // Check if language cookie exists
-        if (isset($_COOKIE['mira_language']) && in_array($_COOKIE['mira_language'], $enabled_languages)) {
-            return $_COOKIE['mira_language'];
-        }
-
-        // Return default language if no language detected
+        // No language prefix in URL — bare URLs are the default language (WPML-style).
+        // The URL is authoritative; the cookie is not used as a fallback here.
         return $default_language;
     }
 
@@ -1274,53 +1270,25 @@ class Mira_Language_Switcher {
             return;
         }
 
-        // Get the request URI
-        $request_uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
-
-        // Get enabled languages and default language
-        $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
+        $request_uri      = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
         $default_language = get_option('mira_ls_default_language', 'en');
+        $home_path        = rtrim( (string) parse_url( home_url(), PHP_URL_PATH ), '/' );
 
-        // Get WordPress home path
-        $home_path = rtrim( (string) parse_url( home_url(), PHP_URL_PATH ), '/' );
-
-        // Check if URL already has a language prefix
-        $pattern = '#^' . preg_quote($home_path, '#') . '/(' . implode('|', $enabled_languages) . ')(/|$)#';
-        if (preg_match($pattern, $request_uri)) {
-            // URL already has language prefix, no redirect needed
-            return;
+        // WPML-style: bare URLs ARE the default language — no prefix needed.
+        // If the URL has the DEFAULT language prefix (e.g. /it/slug/), redirect to
+        // the bare URL (/slug/) for backward-compatibility with any old /it/ links.
+        $default_pattern = '#^' . preg_quote($home_path, '#') . '/' . preg_quote($default_language, '#') . '(/.*)?$#';
+        if (preg_match($default_pattern, $request_uri, $matches)) {
+            $relative     = isset($matches[1]) && $matches[1] !== '' ? $matches[1] : '/';
+            $query_string = '';
+            if (strpos($relative, '?') !== false) {
+                list($relative, $qs) = explode('?', $relative, 2);
+                $query_string = '?' . $qs;
+                if ($relative === '') $relative = '/';
+            }
+            wp_redirect(home_url($relative . $query_string), 301);
+            exit;
         }
-
-        // Check if this is a page request (not homepage, not admin, not wp-content, etc.)
-        // Only redirect actual page URLs
-        if (is_404() || is_search() || is_feed() || (is_singular() && !is_page())) {
-            return;
-        }
-
-        // Build the redirect URL with default language prefix
-        // Remove home_path from request_uri if present
-        $relative_uri = $request_uri;
-        if ($home_path && strpos($request_uri, $home_path) === 0) {
-            $relative_uri = substr($request_uri, strlen($home_path));
-        }
-
-        // Remove query string for processing
-        $query_string = '';
-        if (strpos($relative_uri, '?') !== false) {
-            list($relative_uri, $query_string) = explode('?', $relative_uri, 2);
-            $query_string = '?' . $query_string;
-        }
-
-        // Use cookie language preference if set, otherwise fall back to default language
-        $cookie_lang  = isset($_COOKIE['mira_language']) ? $_COOKIE['mira_language'] : '';
-        $redirect_lang = (in_array($cookie_lang, $enabled_languages, true)) ? $cookie_lang : $default_language;
-
-        // Add language prefix
-        $redirect_url = home_url('/' . $redirect_lang . $relative_uri . $query_string);
-
-        // Redirect — use 302 (temporary) so browsers don't cache this cookie-based redirect
-        wp_redirect($redirect_url, 302);
-        exit;
     }
 
     /**
@@ -1626,7 +1594,10 @@ class Mira_Language_Switcher {
             $current_page_id = get_queried_object_id();
         }
         if (!$current_page_id) {
-            // Return homepage with language prefix (always include prefix now)
+            // Return homepage — default language is bare /, others get a prefix
+            if ($target_lang === $default_language) {
+                return home_url('/');
+            }
             return home_url('/' . $target_lang . '/');
         }
 
@@ -1636,16 +1607,10 @@ class Mira_Language_Switcher {
             // This is the front page in the default language
             // Get the translated front page if it exists
             if ($target_lang === $default_language) {
-                // Same language - return homepage with language prefix
-                return home_url('/' . $target_lang . '/');
+                // Default language homepage — bare URL, no prefix
+                return home_url('/');
             } else {
-                // Different language - check if translation exists
-                $translated_id = self::get_translation($page_on_front, $target_lang);
-                if ($translated_id) {
-                    // Translation exists - return language homepage
-                    return home_url('/' . $target_lang . '/');
-                }
-                // No translation, return language homepage anyway
+                // Non-default language homepage
                 return home_url('/' . $target_lang . '/');
             }
         }
@@ -1656,7 +1621,9 @@ class Mira_Language_Switcher {
             foreach ($links[$page_on_front] as $lang => $translated_front_id) {
                 if ($translated_front_id == $current_page_id) {
                     // Current page is a translated front page
-                    // Return the target language homepage
+                    if ($target_lang === $default_language) {
+                        return home_url('/');
+                    }
                     return home_url('/' . $target_lang . '/');
                 }
             }
@@ -1668,6 +1635,9 @@ class Mira_Language_Switcher {
         // Get current page slug
         $current_page = get_post($current_page_id);
         if (!$current_page) {
+            if ($target_lang === $default_language) {
+                return home_url('/');
+            }
             return home_url('/' . $target_lang . '/');
         }
 
@@ -1676,17 +1646,19 @@ class Mira_Language_Switcher {
             $current_slug = $current_page->post_name;
 
             if ($target_lang === $default_language) {
-                // Same language - return URL with language prefix
-                return home_url('/' . $target_lang . '/' . $current_slug . '/');
+                // Same language — bare URL (no prefix for default language)
+                return home_url('/' . $current_slug . '/');
             } else {
-                // Different language - find translation
+                // Different language — find translation
                 $translated_id = self::get_translation($current_page_id, $target_lang);
                 if ($translated_id) {
-                    return home_url('/' . $target_lang . '/' . $current_slug . '/');
+                    $translated_page = get_post($translated_id);
+                    $translated_slug = $translated_page ? $translated_page->post_name : $current_slug;
+                    return home_url('/' . $target_lang . '/' . $translated_slug . '/');
                 }
-                // No translation exists — link to the same slug in the target language.
-                // WordPress will still find the page by slug, load the same content,
-                // and detect_language() will set the cookie from the URL prefix.
+                // No translation exists — use the same slug with the target language prefix.
+                // WordPress finds the page by slug, loads the default-language content,
+                // and detect_language() sets the cookie from the URL prefix.
                 return home_url('/' . $target_lang . '/' . $current_slug . '/');
             }
         }
@@ -1703,35 +1675,37 @@ class Mira_Language_Switcher {
         }
 
         if (!$default_page_id) {
-            // No translation linked for this page — stay on the current page and
-            // switch the language cookie via a query param (avoids homepage redirect).
-            $request_uri   = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '/';
-            $current_path  = parse_url($request_uri, PHP_URL_PATH);
-            $scheme        = is_ssl() ? 'https' : 'http';
-            $host          = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
-            $current_url   = $scheme . '://' . $host . $current_path;
-            return add_query_arg('mira_set_lang', $target_lang, $current_url);
+            // No translation linked — return the target language homepage
+            if ($target_lang === $default_language) {
+                return home_url('/');
+            }
+            return home_url('/' . $target_lang . '/');
         }
 
         $default_page = get_post($default_page_id);
         if (!$default_page) {
+            if ($target_lang === $default_language) {
+                return home_url('/');
+            }
             return home_url('/' . $target_lang . '/');
         }
 
         $default_slug = $default_page->post_name;
 
-        // If target is default language
+        // If target is default language — bare URL, no prefix
         if ($target_lang === $default_language) {
-            return home_url('/' . $target_lang . '/' . $default_slug . '/');
+            return home_url('/' . $default_slug . '/');
         }
 
-        // If target is another translation
+        // If target is another translation — use that translation's own slug
         if (isset($links[$default_page_id][$target_lang])) {
-            return home_url('/' . $target_lang . '/' . $default_slug . '/');
+            $other_page = get_post($links[$default_page_id][$target_lang]);
+            $other_slug = $other_page ? $other_page->post_name : $default_slug;
+            return home_url('/' . $target_lang . '/' . $other_slug . '/');
         }
 
-        // No translation exists, return language homepage
-        return home_url('/' . $target_lang . '/');
+        // No translation exists — use same slug with target language prefix
+        return home_url('/' . $target_lang . '/' . $default_slug . '/');
     }
 
     /**
