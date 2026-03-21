@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.12
+ * Version: 1.2.13
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -88,6 +88,9 @@ class Mira_Language_Switcher {
         // Language-specific menu locations
         add_action('after_setup_theme', array($this, 'register_language_menu_locations'), 999);
         add_filter('theme_mod_nav_menu_locations', array($this, 'filter_menu_locations'), 10, 1);
+
+        // Auto-prefix menu item URLs with the current language
+        add_filter('wp_nav_menu_objects', array($this, 'prefix_menu_item_urls'), 10, 2);
 
         // Add language flags to menu
         add_filter('wp_nav_menu_items', array($this, 'add_flags_to_menu'), 10, 2);
@@ -290,6 +293,67 @@ class Mira_Language_Switcher {
         }
 
         return $filtered_locations;
+    }
+
+    /**
+     * Auto-prefix menu item URLs with the current language.
+     *
+     * When a menu is assigned to a language-specific location (e.g. main-nav_en),
+     * item URLs can be entered as bare slugs (/new-venue/) and this filter will
+     * prepend the language prefix (/en/new-venue/) automatically.
+     *
+     * Default-language menus are left untouched — their bare URLs are correct.
+     * URLs that already contain a language prefix are also skipped.
+     *
+     * @param array  $items Menu item objects
+     * @param object $args  wp_nav_menu() args
+     * @return array Modified menu item objects
+     */
+    public function prefix_menu_item_urls($items, $args) {
+        if (is_admin()) {
+            return $items;
+        }
+
+        $current_lang     = $this->current_language;
+        $default_language = get_option('mira_ls_default_language', 'en');
+        $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
+
+        // Default language uses bare URLs — nothing to prefix
+        if ($current_lang === $default_language) {
+            return $items;
+        }
+
+        $home_url   = untrailingslashit(home_url());
+        $home_path  = rtrim((string) parse_url(home_url(), PHP_URL_PATH), '/');
+        $lang_regex = '#^' . preg_quote($home_url, '#') . '/(' . implode('|', $enabled_languages) . ')(/|$)#';
+
+        foreach ($items as $item) {
+            if (empty($item->url)) {
+                continue;
+            }
+
+            // Only prefix internal URLs
+            if (strpos($item->url, $home_url) !== 0) {
+                continue;
+            }
+
+            // Skip URLs that already carry a language prefix
+            if (preg_match($lang_regex, $item->url)) {
+                continue;
+            }
+
+            // Extract path after home_url and strip leading slash
+            $relative = ltrim(substr($item->url, strlen($home_url)), '/');
+
+            // Homepage link (empty relative path) → /en/
+            if ($relative === '' || $relative === '/') {
+                $item->url = home_url('/' . $current_lang . '/');
+            } else {
+                $item->url = home_url('/' . $current_lang . '/' . $relative);
+            }
+        }
+
+        return $items;
     }
 
     /**
