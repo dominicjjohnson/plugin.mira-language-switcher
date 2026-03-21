@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.9
+ * Version: 1.2.10
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,7 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.10 - Use cookie language preference when redirecting bare URLs to language prefix (fixes menu links ignoring EN cookie)
  * 1.2.9 - Fix flag link redirecting to homepage when no translation exists; stay on current page and set cookie via ?mira_set_lang param
  * 1.2.8 - Fix is_singular() flags on language-prefix URLs so WPBakery generates CSS for translated pages
  * 1.2.7 - Performance: cap metabox get_posts to 200, add no_found_rows; static cache in get_role_page()
@@ -31,7 +32,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.9');
+define('MIRA_LS_VERSION', '1.2.10');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -1310,8 +1311,12 @@ class Mira_Language_Switcher {
             $query_string = '?' . $query_string;
         }
 
-        // Add default language prefix
-        $redirect_url = home_url('/' . $default_language . $relative_uri . $query_string);
+        // Use cookie language preference if set, otherwise fall back to default language
+        $cookie_lang  = isset($_COOKIE['mira_language']) ? $_COOKIE['mira_language'] : '';
+        $redirect_lang = (in_array($cookie_lang, $enabled_languages, true)) ? $cookie_lang : $default_language;
+
+        // Add language prefix
+        $redirect_url = home_url('/' . $redirect_lang . $relative_uri . $query_string);
 
         // Redirect
         wp_redirect($redirect_url, 301);
