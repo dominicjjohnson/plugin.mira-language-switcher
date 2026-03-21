@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.8
+ * Version: 1.2.9
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,7 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.9 - Fix flag link redirecting to homepage when no translation exists; stay on current page and set cookie via ?mira_set_lang param
  * 1.2.8 - Fix is_singular() flags on language-prefix URLs so WPBakery generates CSS for translated pages
  * 1.2.7 - Performance: cap metabox get_posts to 200, add no_found_rows; static cache in get_role_page()
  * 1.2.6 - Fix get_role_page() picking up translated child pages (e.g. /it/header) as header/footer;
@@ -30,7 +31,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.8');
+define('MIRA_LS_VERSION', '1.2.9');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -96,6 +97,9 @@ class Mira_Language_Switcher {
 
         // Automatic redirects based on cookie
         add_action('template_redirect', array($this, 'auto_redirect_to_translation'), 10);
+
+        // Handle ?mira_set_lang=xx param: set cookie and redirect to clean URL
+        add_action('template_redirect', array($this, 'handle_set_lang_param'), 1);
 
         // Header/footer page filters for theme integration
         add_filter('miramedia_header_page', array('Mira_Language_Switcher', 'get_header_page'));
@@ -1233,6 +1237,34 @@ class Mira_Language_Switcher {
     }
 
     /**
+     * When ?mira_set_lang=xx is present, set the language cookie and redirect
+     * to the same page without the query param. This allows flag links to switch
+     * the language preference even when no translated page exists.
+     */
+    public function handle_set_lang_param() {
+        if (is_admin() || !isset($_GET['mira_set_lang'])) {
+            return;
+        }
+
+        $lang = sanitize_text_field($_GET['mira_set_lang']);
+        $enabled_languages = get_option('mira_ls_enabled_languages', array('en'));
+
+        if (!in_array($lang, $enabled_languages, true)) {
+            return;
+        }
+
+        // Set language cookie (30 days)
+        if (!headers_sent()) {
+            setcookie('mira_language', $lang, time() + (30 * 24 * 60 * 60), '/');
+        }
+        $_COOKIE['mira_language'] = $lang;
+
+        // Redirect to the same page without the query param
+        wp_redirect(remove_query_arg('mira_set_lang'), 302);
+        exit;
+    }
+
+    /**
      * Redirect URLs without language prefix to include default language prefix
      */
     public function redirect_to_language_prefix() {
@@ -1583,8 +1615,11 @@ class Mira_Language_Switcher {
         // Get default language
         $default_language = get_option('mira_ls_default_language', 'en');
 
-        // Get current page ID
+        // Get current page ID — fall back to queried object (more reliable during menu rendering)
         $current_page_id = get_the_ID();
+        if (!$current_page_id) {
+            $current_page_id = get_queried_object_id();
+        }
         if (!$current_page_id) {
             // Return homepage with language prefix (always include prefix now)
             return home_url('/' . $target_lang . '/');
@@ -1644,8 +1679,10 @@ class Mira_Language_Switcher {
                 if ($translated_id) {
                     return home_url('/' . $target_lang . '/' . $current_slug . '/');
                 }
-                // No translation, return language homepage
-                return home_url('/' . $target_lang . '/');
+                // No translation exists — link to the same slug in the target language.
+                // WordPress will still find the page by slug, load the same content,
+                // and detect_language() will set the cookie from the URL prefix.
+                return home_url('/' . $target_lang . '/' . $current_slug . '/');
             }
         }
 
@@ -1661,8 +1698,14 @@ class Mira_Language_Switcher {
         }
 
         if (!$default_page_id) {
-            // Can't find default page, return language homepage
-            return home_url('/' . $target_lang . '/');
+            // No translation linked for this page — stay on the current page and
+            // switch the language cookie via a query param (avoids homepage redirect).
+            $request_uri   = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '/';
+            $current_path  = parse_url($request_uri, PHP_URL_PATH);
+            $scheme        = is_ssl() ? 'https' : 'http';
+            $host          = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
+            $current_url   = $scheme . '://' . $host . $current_path;
+            return add_query_arg('mira_set_lang', $target_lang, $current_url);
         }
 
         $default_page = get_post($default_page_id);
