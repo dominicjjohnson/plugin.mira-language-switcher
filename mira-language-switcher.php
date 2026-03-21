@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.13
+ * Version: 1.2.14
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -406,7 +406,12 @@ class Mira_Language_Switcher {
         }
 
         // No language prefix in URL — bare URLs are the default language (WPML-style).
-        // The URL is authoritative; the cookie is not used as a fallback here.
+        // Update the cookie so other functions (auto_redirect, menu selection) see
+        // the correct language rather than a stale value from a previous page visit.
+        if (!headers_sent()) {
+            setcookie('mira_language', $default_language, time() + (30 * 24 * 60 * 60), '/');
+        }
+        $_COOKIE['mira_language'] = $default_language;
         return $default_language;
     }
 
