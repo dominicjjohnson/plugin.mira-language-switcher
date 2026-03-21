@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.10
+ * Version: 1.2.11
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -1318,8 +1318,8 @@ class Mira_Language_Switcher {
         // Add language prefix
         $redirect_url = home_url('/' . $redirect_lang . $relative_uri . $query_string);
 
-        // Redirect
-        wp_redirect($redirect_url, 301);
+        // Redirect — use 302 (temporary) so browsers don't cache this cookie-based redirect
+        wp_redirect($redirect_url, 302);
         exit;
     }
 
