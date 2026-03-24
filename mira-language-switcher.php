@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.15
+ * Version: 1.2.18
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,7 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.18 - Fix CPT language URLs redirecting to homepage; early-return in load_translated_content when post_type+name are set by rewrite rule
  * 1.2.10 - Use cookie language preference when redirecting bare URLs to language prefix (fixes menu links ignoring EN cookie)
  * 1.2.9 - Fix flag link redirecting to homepage when no translation exists; stay on current page and set cookie via ?mira_set_lang param
  * 1.2.8 - Fix is_singular() flags on language-prefix URLs so WPBakery generates CSS for translated pages
@@ -32,7 +33,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.10');
+define('MIRA_LS_VERSION', '1.2.18');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -531,7 +532,15 @@ class Mira_Language_Switcher {
         }
 
         // Get the page name from query
-        $pagename = get_query_var('pagename');
+        $pagename  = get_query_var('pagename');
+        $cpt_name  = get_query_var('name');
+        $cpt_type  = get_query_var('post_type');
+
+        // CPT language URL: rewrite rule already set post_type + name correctly.
+        // Just leave the query alone — detect_language() already set the cookie.
+        if ($cpt_name && $cpt_type && $cpt_type !== 'page' && empty($pagename)) {
+            return;
+        }
 
         // Handle front page (homepage) specially
         if (empty($pagename)) {
