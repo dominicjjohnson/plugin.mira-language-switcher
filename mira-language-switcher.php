@@ -560,6 +560,40 @@ class Mira_Language_Switcher {
         // Find the default language page by slug
         $default_page = get_page_by_path($pagename);
         if (!$default_page) {
+            // Check if this is a CPT URL: pagename = rewrite-slug/post-slug
+            // e.g. pagename = "exhibitor/aakon-polichimica"
+            if (strpos($pagename, '/') !== false) {
+                $parts        = explode('/', trim($pagename, '/'), 2);
+                $rewrite_slug = $parts[0];
+                $post_slug    = isset($parts[1]) ? $parts[1] : '';
+                if ($post_slug) {
+                    $cpt = $this->get_post_type_by_rewrite_slug($rewrite_slug);
+                    if ($cpt) {
+                        $cpt_posts = get_posts(array(
+                            'post_type'      => $cpt,
+                            'name'           => $post_slug,
+                            'post_status'    => 'publish',
+                            'posts_per_page' => 1,
+                            'no_found_rows'  => true,
+                        ));
+                        if (!empty($cpt_posts)) {
+                            // CPTs are never translated — serve the same post in any language.
+                            // detect_language() already set the cookie from the URL prefix,
+                            // so the menu/header will reflect the chosen language.
+                            $query->set('p', $cpt_posts[0]->ID);
+                            $query->set('post_type', $cpt);
+                            $query->set('name', $post_slug);
+                            $query->set('pagename', '');
+                            $query->is_singular = true;
+                            $query->is_single   = true;
+                            $query->is_page     = false;
+                            $query->is_home     = false;
+                            $query->is_archive  = false;
+                            $query->is_404      = false;
+                        }
+                    }
+                }
+            }
             return;
         }
 
@@ -1653,6 +1687,25 @@ class Mira_Language_Switcher {
      * @param string $target_lang Target language code (en, it, es, etc.)
      * @return string|false URL or false if not available
      */
+    /**
+     * Find a registered public custom post type by its rewrite slug.
+     * Returns the post_type key (e.g. 'exhibitors') or null if not found.
+     * Result is statically cached for the request.
+     */
+    private function get_post_type_by_rewrite_slug($slug) {
+        static $map = null;
+        if ($map === null) {
+            $map = array();
+            $post_types = get_post_types(array('public' => true, '_builtin' => false), 'objects');
+            foreach ($post_types as $pt) {
+                if (!empty($pt->rewrite['slug'])) {
+                    $map[$pt->rewrite['slug']] = $pt->name;
+                }
+            }
+        }
+        return isset($map[$slug]) ? $map[$slug] : null;
+    }
+
     private function get_language_url($target_lang) {
         // Get default language
         $default_language = get_option('mira_ls_default_language', 'en');
@@ -1709,6 +1762,23 @@ class Mira_Language_Switcher {
             }
             return home_url('/' . $target_lang . '/');
         }
+
+        // --- CPT handling ---
+        // CPTs (exhibitors, seminars, speakers, sponsors, etc.) are never translated.
+        // Always link back to the same post content, prefixed with the post-type rewrite
+        // slug so WordPress can resolve it. The language cookie handles the menu language.
+        if ($current_page->post_type !== 'page' && $current_page->post_type !== 'post') {
+            $pt_obj   = get_post_type_object($current_page->post_type);
+            $cpt_slug = ($pt_obj && !empty($pt_obj->rewrite['slug']))
+                ? $pt_obj->rewrite['slug'] . '/'
+                : '';
+            $current_slug = $current_page->post_name;
+            if ($target_lang === $default_language) {
+                return home_url('/' . $cpt_slug . $current_slug . '/');
+            }
+            return home_url('/' . $target_lang . '/' . $cpt_slug . $current_slug . '/');
+        }
+        // --- end CPT handling ---
 
         // If current page is in default language
         if ($current_lang === $default_language) {
