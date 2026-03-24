@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.18
+ * Version: 1.2.19
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,7 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.19 - Prefix CPT permalinks with current language via post_type_link filter (exhibitor/seminar/speaker/sponsor list links now include /en/ etc.)
  * 1.2.18 - Fix CPT language URLs redirecting to homepage; early-return in load_translated_content when post_type+name are set by rewrite rule
  * 1.2.10 - Use cookie language preference when redirecting bare URLs to language prefix (fixes menu links ignoring EN cookie)
  * 1.2.9 - Fix flag link redirecting to homepage when no translation exists; stay on current page and set cookie via ?mira_set_lang param
@@ -33,7 +34,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.18');
+define('MIRA_LS_VERSION', '1.2.19');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -105,6 +106,9 @@ class Mira_Language_Switcher {
 
         // Handle ?mira_set_lang=xx param: set cookie and redirect to clean URL
         add_action('template_redirect', array($this, 'handle_set_lang_param'), 1);
+
+        // Prefix CPT permalinks with current language (so exhibitor/seminar links include /en/ etc.)
+        add_filter('post_type_link', array($this, 'prefix_cpt_permalink'), 10, 2);
 
         // Header/footer page filters for theme integration
         add_filter('miramedia_header_page', array('Mira_Language_Switcher', 'get_header_page'));
@@ -1729,6 +1733,50 @@ class Mira_Language_Switcher {
             }
         }
         return isset($map[$slug]) ? $map[$slug] : null;
+    }
+
+    /**
+     * Filter: prefix CPT permalinks with the current language.
+     * e.g. /exhibitor/aakon-polichimica/ → /en/exhibitor/aakon-polichimica/
+     * Only applies to non-default languages; default language has no prefix.
+     */
+    public function prefix_cpt_permalink($url, $post) {
+        // Only on front-end, not in admin
+        if (is_admin()) {
+            return $url;
+        }
+
+        $default_language = get_option('mira_ls_default_language', 'en');
+        $current_lang     = $this->current_language;
+
+        // No prefix needed for default language
+        if ($current_lang === $default_language) {
+            return $url;
+        }
+
+        // Only for custom (non-builtin) public post types
+        if ($post->post_type === 'page' || $post->post_type === 'post') {
+            return $url;
+        }
+
+        $post_type_obj = get_post_type_object($post->post_type);
+        if (!$post_type_obj || empty($post_type_obj->publicly_queryable)) {
+            return $url;
+        }
+
+        // Build the expected prefix-less base pattern and insert the language segment
+        $home = untrailingslashit(home_url());
+        if (strpos($url, $home . '/' . $current_lang . '/') === 0) {
+            // Already prefixed — nothing to do
+            return $url;
+        }
+
+        if (strpos($url, $home . '/') === 0) {
+            $path = substr($url, strlen($home));           // e.g. /exhibitor/aakon-polichimica/
+            return $home . '/' . $current_lang . $path;   // e.g. /en/exhibitor/aakon-polichimica/
+        }
+
+        return $url;
     }
 
     private function get_language_url($target_lang) {
