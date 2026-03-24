@@ -70,8 +70,8 @@ class Mira_Language_Switcher {
         add_action('add_meta_boxes', array($this, 'add_language_metabox'));
         add_action('save_post', array($this, 'save_language_metabox'));
 
-        // URL rewrite hooks
-        add_action('init', array($this, 'add_rewrite_rules'));
+        // URL rewrite hooks — priority 20 so CPTs are registered (priority 10) first
+        add_action('init', array($this, 'add_rewrite_rules'), 20);
         add_filter('query_vars', array($this, 'add_query_vars'));
 
         // Prevent WordPress from redirecting language URLs
@@ -437,6 +437,22 @@ class Mira_Language_Switcher {
                 'index.php?lang=' . $lang,
                 'top'
             );
+
+            // CPT-specific rules: /{lang}/{cpt-rewrite-slug}/{post-slug}/
+            // Must be added at top and BEFORE the generic single-level rule so they
+            // match first. Uses post_type+name query vars (not pagename) which
+            // WordPress resolves correctly for non-hierarchical post types.
+            $post_types = get_post_types(array('public' => true, '_builtin' => false), 'objects');
+            foreach ($post_types as $pt) {
+                if (empty($pt->rewrite['slug'])) {
+                    continue;
+                }
+                add_rewrite_rule(
+                    '^' . $lang . '/' . preg_quote($pt->rewrite['slug'], '#') . '/([^/]+)/?$',
+                    'index.php?lang=' . $lang . '&post_type=' . $pt->name . '&name=$matches[1]',
+                    'top'
+                );
+            }
 
             // Rule for single-level pages/posts (e.g., /en/about-us)
             add_rewrite_rule(
