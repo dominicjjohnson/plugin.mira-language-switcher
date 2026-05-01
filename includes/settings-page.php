@@ -35,6 +35,20 @@ if (isset($_POST['mira_ls_save_settings']) && check_admin_referer('mira_ls_setti
     update_option('mira_ls_header_pages', $header_pages);
     update_option('mira_ls_footer_pages', $footer_pages);
 
+    // Save cookie prompt per-language settings
+    $cookie_prompts = array();
+    if (isset($_POST['mira_ls_cookie_prompt']) && is_array($_POST['mira_ls_cookie_prompt'])) {
+        foreach ($_POST['mira_ls_cookie_prompt'] as $lang => $fields) {
+            $lang = sanitize_text_field($lang);
+            $cookie_prompts[$lang] = array(
+                'text'      => sanitize_text_field($fields['text'] ?? ''),
+                'url'       => esc_url_raw($fields['url'] ?? ''),
+                'link_text' => sanitize_text_field($fields['link_text'] ?? ''),
+            );
+        }
+    }
+    update_option('mira_ls_cookie_prompt', $cookie_prompts);
+
     echo '<div class="notice notice-success is-dismissible"><p>' . __('Settings saved successfully!', 'mira-language-switcher') . '</p></div>';
 }
 
@@ -47,8 +61,9 @@ $menu_location = get_option('mira_ls_menu_location', 'all');
 $menu_flag_type = get_option('mira_ls_menu_flag_type', 'emoji');
 $auto_redirect = get_option('mira_ls_auto_redirect', 'no');
 $show_lang_in_title = get_option('mira_ls_show_lang_in_title', 'no');
-$header_pages = get_option('mira_ls_header_pages', array());
-$footer_pages = get_option('mira_ls_footer_pages', array());
+$header_pages   = get_option('mira_ls_header_pages', array());
+$footer_pages   = get_option('mira_ls_footer_pages', array());
+$cookie_prompts = get_option('mira_ls_cookie_prompt', array());
 
 // Get all published pages for dropdown
 $all_pages = get_posts(array(
@@ -282,6 +297,43 @@ $available_languages = array(
                                 </option>
                             <?php endforeach; ?>
                         </select>
+                    </label>
+                </td>
+            </tr>
+            <?php endforeach; ?>
+        </table>
+
+        <h2><?php _e('Cookie Prompt', 'mira-language-switcher'); ?></h2>
+        <p><?php _e('Override the cookie consent banner text, URL, and link text for each language. Leave fields blank to use the global Customizer / theme defaults.', 'mira-language-switcher'); ?></p>
+
+        <table class="form-table">
+            <?php foreach ($enabled_languages as $lang_code):
+                $lang_name = isset($available_languages[$lang_code]) ? $available_languages[$lang_code] : strtoupper($lang_code);
+                $cp = isset($cookie_prompts[$lang_code]) ? $cookie_prompts[$lang_code] : array();
+            ?>
+            <tr>
+                <th scope="row">
+                    <?php echo esc_html($lang_name . ' (' . strtoupper($lang_code) . ')'); ?>
+                </th>
+                <td>
+                    <label><?php _e('Prompt Text:', 'mira-language-switcher'); ?><br>
+                        <textarea name="mira_ls_cookie_prompt[<?php echo esc_attr($lang_code); ?>][text]"
+                                  rows="3" class="large-text"><?php echo esc_textarea($cp['text'] ?? ''); ?></textarea>
+                    </label>
+                    <br>
+                    <label><?php _e('Policy URL:', 'mira-language-switcher'); ?><br>
+                        <input type="url"
+                               name="mira_ls_cookie_prompt[<?php echo esc_attr($lang_code); ?>][url]"
+                               value="<?php echo esc_attr($cp['url'] ?? ''); ?>"
+                               class="regular-text"
+                               placeholder="https://">
+                    </label>
+                    <br><br>
+                    <label><?php _e('Link Text:', 'mira-language-switcher'); ?><br>
+                        <input type="text"
+                               name="mira_ls_cookie_prompt[<?php echo esc_attr($lang_code); ?>][link_text]"
+                               value="<?php echo esc_attr($cp['link_text'] ?? ''); ?>"
+                               class="regular-text">
                     </label>
                 </td>
             </tr>

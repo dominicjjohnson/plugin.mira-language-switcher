@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.19
+ * Version: 1.2.20
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,7 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.20 - Add per-language cookie prompt settings (text, URL, link text) to Settings page; filter theme cookie banner values
  * 1.2.19 - Prefix CPT permalinks with current language via post_type_link filter (exhibitor/seminar/speaker/sponsor list links now include /en/ etc.)
  * 1.2.18 - Fix CPT language URLs redirecting to homepage; early-return in load_translated_content when post_type+name are set by rewrite rule
  * 1.2.10 - Use cookie language preference when redirecting bare URLs to language prefix (fixes menu links ignoring EN cookie)
@@ -34,7 +35,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.19');
+define('MIRA_LS_VERSION', '1.2.20');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -113,6 +114,11 @@ class Mira_Language_Switcher {
         // Header/footer page filters for theme integration
         add_filter('miramedia_header_page', array('Mira_Language_Switcher', 'get_header_page'));
         add_filter('miramedia_footer_page', array('Mira_Language_Switcher', 'get_footer_page'));
+
+        // Cookie prompt per-language overrides
+        add_filter('miramedia_cookie_prompt_text', array($this, 'filter_cookie_prompt_text'));
+        add_filter('miramedia_cookie_prompt_url', array($this, 'filter_cookie_prompt_url'));
+        add_filter('miramedia_cookie_prompt_url_text', array($this, 'filter_cookie_prompt_url_text'));
 
         // Title modification
         add_filter('the_title', array($this, 'modify_title_with_language'), 10, 2);
@@ -209,6 +215,7 @@ class Mira_Language_Switcher {
         register_setting('mira_ls_settings_group', 'mira_ls_show_lang_in_title');
         register_setting('mira_ls_settings_group', 'mira_ls_header_pages');
         register_setting('mira_ls_settings_group', 'mira_ls_footer_pages');
+        register_setting('mira_ls_settings_group', 'mira_ls_cookie_prompt');
     }
 
     /**
@@ -2156,6 +2163,41 @@ class Mira_Language_Switcher {
         ));
 
         return $cache[$cache_key] = ( $fallback ? $fallback[0] : false );
+    }
+    /**
+     * Filter: override cookie prompt text for the current language.
+     */
+    public function filter_cookie_prompt_text($text) {
+        $lang    = $this->get_current_language();
+        $prompts = get_option('mira_ls_cookie_prompt', array());
+        if (!empty($prompts[$lang]['text'])) {
+            return $prompts[$lang]['text'];
+        }
+        return $text;
+    }
+
+    /**
+     * Filter: override cookie policy URL for the current language.
+     */
+    public function filter_cookie_prompt_url($url) {
+        $lang    = $this->get_current_language();
+        $prompts = get_option('mira_ls_cookie_prompt', array());
+        if (!empty($prompts[$lang]['url'])) {
+            return $prompts[$lang]['url'];
+        }
+        return $url;
+    }
+
+    /**
+     * Filter: override cookie policy link text for the current language.
+     */
+    public function filter_cookie_prompt_url_text($link_text) {
+        $lang    = $this->get_current_language();
+        $prompts = get_option('mira_ls_cookie_prompt', array());
+        if (!empty($prompts[$lang]['link_text'])) {
+            return $prompts[$lang]['link_text'];
+        }
+        return $link_text;
     }
 }
 
