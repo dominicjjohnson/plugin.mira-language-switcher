@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.22
+ * Version: 1.2.23
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,7 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.23 - Increase horizontal padding on language switcher items from 6px to 8px (text mode spacing fix)
  * 1.2.20 - Add per-language cookie prompt settings (text, URL, link text) to Settings page; filter theme cookie banner values
  * 1.2.19 - Prefix CPT permalinks with current language via post_type_link filter (exhibitor/seminar/speaker/sponsor list links now include /en/ etc.)
  * 1.2.18 - Fix CPT language URLs redirecting to homepage; early-return in load_translated_content when post_type+name are set by rewrite rule
@@ -1677,7 +1678,7 @@ class Mira_Language_Switcher {
         .menu-item-language-switcher span {
             display: flex;
             align-items: center;
-            padding: 0.75em 6px;
+            padding: 0.75em 8px;
             line-height: 1;
             text-decoration: none;
             border-radius: 4px;
