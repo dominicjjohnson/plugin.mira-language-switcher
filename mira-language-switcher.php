@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.21
+ * Version: 1.2.22
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -1700,8 +1700,10 @@ class Mira_Language_Switcher {
             background-color: rgba(0, 0, 0, 0.12);
         }
         .menu-item-language-switcher .current-lang {
-            opacity: 0.45;
             cursor: default;
+        }
+        .menu-item-language-switcher .current-lang img {
+            opacity: 0.45;
         }
         @media (max-width: 1031px) {
             .menu-item-language-switcher {
