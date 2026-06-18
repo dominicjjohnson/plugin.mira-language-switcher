@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.24
+ * Version: 1.2.25
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,7 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.25 - Add Term Translations bulk-edit page; filter get_term/get_terms on frontend to swap names by language
  * 1.2.24 - Admin bar: on post edit screens show the post's own language with dropdown links to edit each translation
  * 1.2.23 - Increase horizontal padding on language switcher items from 6px to 8px (text mode spacing fix)
  * 1.2.20 - Add per-language cookie prompt settings (text, URL, link text) to Settings page; filter theme cookie banner values
@@ -37,7 +38,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.24');
+define('MIRA_LS_VERSION', '1.2.25');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -70,6 +71,11 @@ class Mira_Language_Switcher {
         add_action('admin_init', array($this, 'register_settings'));
         add_action('admin_bar_menu', array($this, 'add_language_to_admin_bar'), 100);
         add_action('admin_post_save_translation_links', array($this, 'save_translation_links'));
+        add_action('admin_post_save_term_translations', array($this, 'save_term_translations'));
+
+        // Translate term names on the frontend based on current language
+        add_filter('get_term', array($this, 'filter_term_name'), 10, 2);
+        add_filter('get_terms', array($this, 'filter_terms_names'), 10, 4);
 
         // Page language metabox
         add_action('add_meta_boxes', array($this, 'add_language_metabox'));
@@ -180,6 +186,16 @@ class Mira_Language_Switcher {
             'manage_options',
             'mira-language-switcher-translations',
             array($this, 'translation_links_page')
+        );
+
+        // Add Term Translations submenu
+        add_submenu_page(
+            'mira-language-switcher',
+            __('Term Translations', 'mira-language-switcher'),
+            __('Term Translations', 'mira-language-switcher'),
+            'manage_options',
+            'mira-language-switcher-terms',
+            array($this, 'term_translations_page')
         );
 
         // Add WPML Import submenu
@@ -2271,6 +2287,239 @@ class Mira_Language_Switcher {
             return $prompts[$lang]['link_text'];
         }
         return $link_text;
+    }
+
+    /**
+     * Term Translations admin page.
+     * Shows all terms for the selected taxonomy in a table with a text input per
+     * non-default language. Placeholder text is the default-language name so the
+     * editor knows what will be shown when no translation is saved.
+     */
+    public function term_translations_page() {
+        if (!current_user_can('manage_options')) {
+            wp_die(__('You do not have sufficient permissions to access this page.'));
+        }
+
+        $enabled_languages     = get_option('mira_ls_enabled_languages', array('en'));
+        $default_language      = get_option('mira_ls_default_language', 'en');
+        $translation_languages = array_values(array_diff($enabled_languages, array($default_language)));
+
+        $all_language_names = array(
+            'en' => __('English',    'mira-language-switcher'),
+            'es' => __('Spanish',    'mira-language-switcher'),
+            'it' => __('Italian',    'mira-language-switcher'),
+            'fr' => __('French',     'mira-language-switcher'),
+            'de' => __('German',     'mira-language-switcher'),
+            'pt' => __('Portuguese', 'mira-language-switcher'),
+            'ru' => __('Russian',    'mira-language-switcher'),
+            'ja' => __('Japanese',   'mira-language-switcher'),
+            'zh' => __('Chinese',    'mira-language-switcher'),
+            'ar' => __('Arabic',     'mira-language-switcher'),
+        );
+
+        $selected_taxonomy = isset($_GET['mira_taxonomy']) ? sanitize_key($_GET['mira_taxonomy']) : 'category';
+        $taxonomies        = get_taxonomies(array('public' => true), 'objects');
+
+        $terms = get_terms(array(
+            'taxonomy'               => $selected_taxonomy,
+            'hide_empty'             => false,
+            'orderby'                => 'name',
+            'order'                  => 'ASC',
+            'update_term_meta_cache' => true,
+        ));
+
+        if (isset($_GET['settings-updated']) && $_GET['settings-updated'] === 'true') {
+            echo '<div class="notice notice-success is-dismissible"><p>' .
+                 __('Term translations saved successfully!', 'mira-language-switcher') .
+                 '</p></div>';
+        }
+        ?>
+        <div class="wrap">
+            <h1><?php _e('Term Translations', 'mira-language-switcher'); ?></h1>
+            <p><?php _e('Enter translations for taxonomy terms. Leave blank to display the default language name.', 'mira-language-switcher'); ?></p>
+
+            <form method="get" style="margin-bottom: 20px;">
+                <input type="hidden" name="page" value="mira-language-switcher-terms">
+                <label for="mira_taxonomy"><strong><?php _e('Taxonomy:', 'mira-language-switcher'); ?></strong></label>
+                <select name="mira_taxonomy" id="mira_taxonomy" onchange="this.form.submit()" style="margin-left: 6px;">
+                    <?php foreach ($taxonomies as $tax_key => $tax): ?>
+                        <option value="<?php echo esc_attr($tax_key); ?>" <?php selected($selected_taxonomy, $tax_key); ?>>
+                            <?php echo esc_html($tax->label); ?> (<?php echo esc_html($tax_key); ?>)
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </form>
+
+            <?php if (empty($translation_languages)): ?>
+                <div class="notice notice-warning">
+                    <p><?php _e('No translation languages are configured. Please add languages in Settings.', 'mira-language-switcher'); ?></p>
+                </div>
+            <?php elseif (empty($terms) || is_wp_error($terms)): ?>
+                <div class="notice notice-info">
+                    <p><?php printf(__('No terms found in the "%s" taxonomy.', 'mira-language-switcher'), esc_html($selected_taxonomy)); ?></p>
+                </div>
+            <?php else: ?>
+                <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
+                    <?php wp_nonce_field('save_term_translations_action', 'term_translations_nonce'); ?>
+                    <input type="hidden" name="action" value="save_term_translations">
+                    <input type="hidden" name="mira_taxonomy" value="<?php echo esc_attr($selected_taxonomy); ?>">
+
+                    <?php
+                    $num_trans_cols = count($translation_languages);
+                    $default_col_w  = 30;
+                    $trans_col_w    = floor(65 / $num_trans_cols);
+                    ?>
+                    <table class="wp-list-table widefat fixed striped">
+                        <thead>
+                            <tr>
+                                <th style="width: <?php echo $default_col_w; ?>%;">
+                                    <?php
+                                    $default_lang_name = isset($all_language_names[$default_language]) ? $all_language_names[$default_language] : strtoupper($default_language);
+                                    /* translators: %s: default language name */
+                                    printf(__('%s (default)', 'mira-language-switcher'), esc_html($default_lang_name));
+                                    ?>
+                                </th>
+                                <?php foreach ($translation_languages as $lang): ?>
+                                    <th style="width: <?php echo $trans_col_w; ?>%;">
+                                        <?php echo esc_html(isset($all_language_names[$lang]) ? $all_language_names[$lang] : strtoupper($lang)); ?>
+                                    </th>
+                                <?php endforeach; ?>
+                                <th style="width: 5%;">ID</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($terms as $term): ?>
+                                <tr>
+                                    <td>
+                                        <strong><?php echo esc_html($term->name); ?></strong>
+                                        <?php if ($term->parent): ?>
+                                            <br><small style="color: #999;">
+                                                <?php
+                                                $parent = get_term($term->parent, $selected_taxonomy);
+                                                echo $parent && !is_wp_error($parent) ? '↳ ' . esc_html($parent->name) : '↳ child';
+                                                ?>
+                                            </small>
+                                        <?php endif; ?>
+                                    </td>
+                                    <?php foreach ($translation_languages as $lang): ?>
+                                        <td>
+                                            <input type="text"
+                                                   name="term_translations[<?php echo $term->term_id; ?>][<?php echo esc_attr($lang); ?>]"
+                                                   value="<?php echo esc_attr(get_term_meta($term->term_id, '_mira_term_name_' . $lang, true)); ?>"
+                                                   placeholder="<?php echo esc_attr($term->name); ?>"
+                                                   style="width: 100%;">
+                                        </td>
+                                    <?php endforeach; ?>
+                                    <td><small style="color: #666;"><?php echo $term->term_id; ?></small></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+
+                    <p class="submit">
+                        <input type="submit" class="button button-primary"
+                               value="<?php esc_attr_e('Save Term Translations', 'mira-language-switcher'); ?>">
+                    </p>
+                </form>
+            <?php endif; ?>
+        </div>
+        <?php
+    }
+
+    /**
+     * Save term translations from the Term Translations admin page.
+     */
+    public function save_term_translations() {
+        if (!isset($_POST['term_translations_nonce']) ||
+            !wp_verify_nonce($_POST['term_translations_nonce'], 'save_term_translations_action')) {
+            wp_die(__('Security check failed', 'mira-language-switcher'));
+        }
+
+        if (!current_user_can('manage_options')) {
+            wp_die(__('You do not have sufficient permissions.'));
+        }
+
+        $enabled_languages     = get_option('mira_ls_enabled_languages', array('en'));
+        $default_language      = get_option('mira_ls_default_language', 'en');
+        $translation_languages = array_diff($enabled_languages, array($default_language));
+        $taxonomy              = isset($_POST['mira_taxonomy']) ? sanitize_key($_POST['mira_taxonomy']) : 'category';
+        $translations          = isset($_POST['term_translations']) ? $_POST['term_translations'] : array();
+
+        foreach ($translations as $term_id => $langs) {
+            $term_id = absint($term_id);
+            if (!$term_id) {
+                continue;
+            }
+            foreach ($translation_languages as $lang) {
+                $value = isset($langs[$lang]) ? sanitize_text_field($langs[$lang]) : '';
+                if ($value !== '') {
+                    update_term_meta($term_id, '_mira_term_name_' . $lang, $value);
+                } else {
+                    delete_term_meta($term_id, '_mira_term_name_' . $lang);
+                }
+            }
+        }
+
+        wp_redirect(add_query_arg(array(
+            'page'             => 'mira-language-switcher-terms',
+            'mira_taxonomy'    => $taxonomy,
+            'settings-updated' => 'true',
+        ), admin_url('admin.php')));
+        exit;
+    }
+
+    /**
+     * Filter a single term: swap its name for the current language translation.
+     * Falls back to the original (default-language) name if no translation is saved.
+     */
+    public function filter_term_name($term, $taxonomy) {
+        if (is_admin() || !is_object($term) || !isset($term->term_id)) {
+            return $term;
+        }
+
+        $current_lang = $this->current_language;
+        $default_lang = get_option('mira_ls_default_language', 'en');
+
+        if ($current_lang === $default_lang) {
+            return $term;
+        }
+
+        $translated = get_term_meta($term->term_id, '_mira_term_name_' . $current_lang, true);
+        if (!empty($translated)) {
+            $term->name = $translated;
+        }
+
+        return $term;
+    }
+
+    /**
+     * Filter an array of terms: swap each term's name for the current language.
+     * Falls back to the original name when no translation exists.
+     */
+    public function filter_terms_names($terms, $taxonomies, $args, $term_query) {
+        if (is_admin()) {
+            return $terms;
+        }
+
+        $current_lang = $this->current_language;
+        $default_lang = get_option('mira_ls_default_language', 'en');
+
+        if ($current_lang === $default_lang) {
+            return $terms;
+        }
+
+        foreach ($terms as &$term) {
+            if (!is_object($term) || !isset($term->term_id)) {
+                continue;
+            }
+            $translated = get_term_meta($term->term_id, '_mira_term_name_' . $current_lang, true);
+            if (!empty($translated)) {
+                $term->name = $translated;
+            }
+        }
+        unset($term);
+
+        return $terms;
     }
 }
 
