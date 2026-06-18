@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.25
+ * Version: 1.2.26
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,7 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.26 - Align Term Translations meta key with cw-plugin-exhibitors (category_name_{lang})
  * 1.2.25 - Add Term Translations bulk-edit page; filter get_term/get_terms on frontend to swap names by language
  * 1.2.24 - Admin bar: on post edit screens show the post's own language with dropdown links to edit each translation
  * 1.2.23 - Increase horizontal padding on language switcher items from 6px to 8px (text mode spacing fix)
@@ -38,7 +39,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.25');
+define('MIRA_LS_VERSION', '1.2.26');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -2405,7 +2406,7 @@ class Mira_Language_Switcher {
                                         <td>
                                             <input type="text"
                                                    name="term_translations[<?php echo $term->term_id; ?>][<?php echo esc_attr($lang); ?>]"
-                                                   value="<?php echo esc_attr(get_term_meta($term->term_id, '_mira_term_name_' . $lang, true)); ?>"
+                                                   value="<?php echo esc_attr(get_term_meta($term->term_id, 'category_name_' . $lang, true)); ?>"
                                                    placeholder="<?php echo esc_attr($term->name); ?>"
                                                    style="width: 100%;">
                                         </td>
@@ -2453,9 +2454,9 @@ class Mira_Language_Switcher {
             foreach ($translation_languages as $lang) {
                 $value = isset($langs[$lang]) ? sanitize_text_field($langs[$lang]) : '';
                 if ($value !== '') {
-                    update_term_meta($term_id, '_mira_term_name_' . $lang, $value);
+                    update_term_meta($term_id, 'category_name_' . $lang, $value);
                 } else {
-                    delete_term_meta($term_id, '_mira_term_name_' . $lang);
+                    delete_term_meta($term_id, 'category_name_' . $lang);
                 }
             }
         }
@@ -2484,7 +2485,7 @@ class Mira_Language_Switcher {
             return $term;
         }
 
-        $translated = get_term_meta($term->term_id, '_mira_term_name_' . $current_lang, true);
+        $translated = get_term_meta($term->term_id, 'category_name_' . $current_lang, true);
         if (!empty($translated)) {
             $term->name = $translated;
         }
@@ -2512,7 +2513,7 @@ class Mira_Language_Switcher {
             if (!is_object($term) || !isset($term->term_id)) {
                 continue;
             }
-            $translated = get_term_meta($term->term_id, '_mira_term_name_' . $current_lang, true);
+            $translated = get_term_meta($term->term_id, 'category_name_' . $current_lang, true);
             if (!empty($translated)) {
                 $term->name = $translated;
             }
