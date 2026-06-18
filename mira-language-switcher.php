@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.23
+ * Version: 1.2.24
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,7 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.24 - Admin bar: on post edit screens show the post's own language with dropdown links to edit each translation
  * 1.2.23 - Increase horizontal padding on language switcher items from 6px to 8px (text mode spacing fix)
  * 1.2.20 - Add per-language cookie prompt settings (text, URL, link text) to Settings page; filter theme cookie banner values
  * 1.2.19 - Prefix CPT permalinks with current language via post_type_link filter (exhibitor/seminar/speaker/sponsor list links now include /en/ etc.)
@@ -36,7 +37,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.20');
+define('MIRA_LS_VERSION', '1.2.24');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -658,20 +659,90 @@ class Mira_Language_Switcher {
     }
 
     /**
-     * Add language indicator to admin bar
+     * Add language indicator to admin bar.
+     *
+     * On a post/page edit screen: shows the language the post being edited is
+     * written in, with a dropdown child for each available translation that links
+     * directly to that translation's edit URL.
+     *
+     * Everywhere else: shows the current session language as before.
      *
      * @param WP_Admin_Bar $wp_admin_bar
      */
     public function add_language_to_admin_bar($wp_admin_bar) {
-        $current_lang = $this->get_current_language();
-
         $language_names = array(
             'en' => 'English',
             'it' => 'Italian',
-            'es' => 'Spanish'
+            'es' => 'Spanish',
+            'fr' => 'French',
+            'de' => 'German',
+            'pt' => 'Portuguese',
         );
 
-        $lang_name = isset($language_names[$current_lang]) ? $language_names[$current_lang] : $current_lang;
+        $flag_emojis = array(
+            'en' => '🇬🇧',
+            'es' => '🇪🇸',
+            'it' => '🇮🇹',
+            'fr' => '🇫🇷',
+            'de' => '🇩🇪',
+            'pt' => '🇵🇹',
+        );
+
+        // On a post edit screen, show the language the post is written in.
+        $screen  = function_exists('get_current_screen') ? get_current_screen() : null;
+        $post_id = isset($_GET['post']) ? absint($_GET['post']) : 0;
+
+        if ($post_id && $screen && $screen->base === 'post') {
+            $post = get_post($post_id);
+            if (!$post) {
+                return;
+            }
+
+            $post_lang     = self::get_page_language($post_id);
+            $default_lang  = get_option('mira_ls_default_language', 'en');
+            $enabled_langs = get_option('mira_ls_enabled_languages', array('en'));
+
+            $lang_name = isset($language_names[$post_lang]) ? $language_names[$post_lang] : strtoupper($post_lang);
+            $flag      = isset($flag_emojis[$post_lang]) ? $flag_emojis[$post_lang] : '🌐';
+
+            $wp_admin_bar->add_node(array(
+                'id'    => 'mira-current-language',
+                'title' => $flag . ' ' . $lang_name,
+                'href'  => false,
+                'meta'  => array(
+                    'title' => __('Post Language', 'mira-language-switcher'),
+                ),
+            ));
+
+            // Preserve the WPBakery backend editor param if present in the current request.
+            $qs         = isset($_SERVER['QUERY_STRING']) ? $_SERVER['QUERY_STRING'] : '';
+            $append_wpb = (strpos($qs, 'wpb-backend-editor') !== false) ? '&wpb-backend-editor' : '';
+
+            $other_langs = array_diff($enabled_langs, array($post_lang));
+            foreach ($other_langs as $lang) {
+                $translated_id = self::find_linked_translation($post_id, $post_lang, $lang, $default_lang);
+                if (!$translated_id) {
+                    continue;
+                }
+
+                $lang_name_other = isset($language_names[$lang]) ? $language_names[$lang] : strtoupper($lang);
+                $flag_other      = isset($flag_emojis[$lang]) ? $flag_emojis[$lang] : '🌐';
+                $edit_url        = admin_url('post.php?post=' . $translated_id . '&action=edit') . $append_wpb;
+
+                $wp_admin_bar->add_node(array(
+                    'parent' => 'mira-current-language',
+                    'id'     => 'mira-lang-' . $lang,
+                    'title'  => $flag_other . ' ' . $lang_name_other,
+                    'href'   => $edit_url,
+                ));
+            }
+
+            return;
+        }
+
+        // Default: show current session language with a link to the settings page.
+        $current_lang = $this->get_current_language();
+        $lang_name    = isset($language_names[$current_lang]) ? $language_names[$current_lang] : $current_lang;
 
         $wp_admin_bar->add_node(array(
             'id'    => 'mira-current-language',
@@ -1335,7 +1406,7 @@ class Mira_Language_Switcher {
      * @param string $default_lang The site default language.
      * @return int   The linked page ID, or 0 if none.
      */
-    private static function find_linked_translation( $post_id, $current_lang, $target_lang, $default_lang ) {
+    public static function find_linked_translation( $post_id, $current_lang, $target_lang, $default_lang ) {
         $links = get_option( MIRA_LS_TRANSLATIONS_OPTION, array() );
 
         if ( $current_lang === $default_lang ) {
