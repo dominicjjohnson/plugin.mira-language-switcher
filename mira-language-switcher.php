@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.26
+ * Version: 1.2.27
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,13 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.27 - Generalize page translation (Language metabox, translation links, translated-slug
+ *          URLs) to any post type via the 'mira_ls_translatable_post_types' filter, so other
+ *          plugins (e.g. mira-event's seminars) can opt in without page-specific hardcoding.
+ *          Translation Links admin page gets a post-type selector. Add reusable
+ *          render_translatable_field()/render_translatable_field_admin()/save_translatable_field()
+ *          helpers so other plugins can add an exhibitor-style per-language bio flag-switcher
+ *          (used by mira-event's speakers) without duplicating that markup/JS.
  * 1.2.26 - Align Term Translations meta key with cw-plugin-exhibitors (category_name_{lang})
  * 1.2.25 - Add Term Translations bulk-edit page; filter get_term/get_terms on frontend to swap names by language
  * 1.2.24 - Admin bar: on post edit screens show the post's own language with dropdown links to edit each translation
@@ -39,7 +46,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.26');
+define('MIRA_LS_VERSION', '1.2.27');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -612,8 +619,8 @@ class Mira_Language_Switcher {
             return;
         }
 
-        // Find the default language page by slug
-        $default_page = get_page_by_path($pagename);
+        // Find the default language page (or other translatable post type) by slug
+        $default_page = get_page_by_path($pagename, OBJECT, self::get_translatable_post_types());
         if (!$default_page) {
             // Check if this is a CPT URL: pagename = rewrite-slug/post-slug
             // e.g. pagename = "exhibitor/aakon-polichimica"
@@ -817,9 +824,20 @@ class Mira_Language_Switcher {
             'ar' => __('Arabic', 'mira-language-switcher')
         );
 
-        // Get all pages
+        // Which translatable post type this view/form is showing — 'page' by default,
+        // switchable via the dropdown below when other post types (e.g. seminars) have
+        // opted into translation via the 'mira_ls_translatable_post_types' filter.
+        $translatable_types = self::get_translatable_post_types();
+        $post_type = isset($_GET['mira_post_type']) ? sanitize_key($_GET['mira_post_type']) : 'page';
+        if (!in_array($post_type, $translatable_types, true)) {
+            $post_type = reset($translatable_types);
+        }
+        $post_type_obj   = get_post_type_object($post_type);
+        $post_type_label = $post_type_obj ? $post_type_obj->labels->singular_name : ucfirst($post_type);
+
+        // Get all posts of the selected translatable post type
         $all_pages = get_posts(array(
-            'post_type' => 'page',
+            'post_type' => $post_type,
             'post_status' => 'publish',
             'posts_per_page' => -1,
             'orderby' => 'title',
@@ -863,16 +881,35 @@ class Mira_Language_Switcher {
         ?>
         <div class="wrap">
             <h1><?php echo esc_html__('Translation Links', 'mira-language-switcher'); ?></h1>
+
+            <?php if (count($translatable_types) > 1): ?>
+            <form method="get" style="margin-bottom: 20px;">
+                <input type="hidden" name="page" value="mira-language-switcher-translations">
+                <label for="mira_post_type"><strong><?php _e('Post type:', 'mira-language-switcher'); ?></strong></label>
+                <select name="mira_post_type" id="mira_post_type" onchange="this.form.submit()" style="margin-left: 6px;">
+                    <?php foreach ($translatable_types as $type_key):
+                        $type_obj = get_post_type_object($type_key);
+                        $type_label = $type_obj ? $type_obj->labels->name : ucfirst($type_key);
+                    ?>
+                        <option value="<?php echo esc_attr($type_key); ?>" <?php selected($post_type, $type_key); ?>>
+                            <?php echo esc_html($type_label); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </form>
+            <?php endif; ?>
+
             <p><?php
-                /* translators: %s: name of default language */
-                printf(__('Link %s pages to their translations.', 'mira-language-switcher'),
-                    isset($language_names[$default_language]) ? $language_names[$default_language] : $default_language
+                /* translators: 1: name of default language, 2: post type label */
+                printf(__('Link %1$s %2$s to their translations.', 'mira-language-switcher'),
+                    isset($language_names[$default_language]) ? $language_names[$default_language] : $default_language,
+                    esc_html($post_type_label)
                 );
             ?></p>
 
             <div class="notice notice-info">
                 <p>
-                    <strong><?php _e('Page counts:', 'mira-language-switcher'); ?></strong>
+                    <strong><?php echo esc_html($post_type_label); ?> <?php _e('counts:', 'mira-language-switcher'); ?></strong>
                     <?php
                     $count_parts = array();
                     foreach ($enabled_languages as $lang) {
@@ -888,6 +925,7 @@ class Mira_Language_Switcher {
 
             <form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
                 <?php wp_nonce_field('save_translation_links_action', 'translation_links_nonce'); ?>
+                <input type="hidden" name="mira_post_type" value="<?php echo esc_attr($post_type); ?>">
                 <input type="hidden" name="action" value="save_translation_links">
 
                 <table class="wp-list-table widefat fixed striped">
@@ -895,9 +933,10 @@ class Mira_Language_Switcher {
                         <tr>
                             <th style="width: <?php echo count($translation_languages) > 0 ? 35 : 95; ?>%;">
                                 <?php
-                                /* translators: %s: name of default language */
-                                printf(__('%s Page', 'mira-language-switcher'),
-                                    isset($language_names[$default_language]) ? $language_names[$default_language] : ucfirst($default_language)
+                                /* translators: 1: name of default language, 2: post type label */
+                                printf(__('%1$s %2$s', 'mira-language-switcher'),
+                                    isset($language_names[$default_language]) ? $language_names[$default_language] : ucfirst($default_language),
+                                    esc_html($post_type_label)
                                 );
                                 ?>
                             </th>
@@ -922,13 +961,18 @@ class Mira_Language_Switcher {
                             <tr>
                                 <td colspan="<?php echo count($translation_languages) + 2; ?>">
                                     <?php
-                                    /* translators: %s: name of default language */
-                                    printf(__('No %s pages found. Please set page languages first.', 'mira-language-switcher'),
-                                        isset($language_names[$default_language]) ? $language_names[$default_language] : ucfirst($default_language)
+                                    /* translators: 1: name of default language, 2: post type label (plural) */
+                                    printf(__('No %1$s %2$s found. Please set languages first.', 'mira-language-switcher'),
+                                        isset($language_names[$default_language]) ? $language_names[$default_language] : ucfirst($default_language),
+                                        esc_html($post_type_obj ? $post_type_obj->labels->name : $post_type_label)
                                     );
                                     ?>
                                     <br>
-                                    <small><?php _e('Edit a page and set its language in the Language metabox.', 'mira-language-switcher'); ?></small>
+                                    <small><?php printf(
+                                        /* translators: %s: post type label */
+                                        esc_html__('Edit a %s and set its language in the Language metabox.', 'mira-language-switcher'),
+                                        esc_html( strtolower( $post_type_label ) )
+                                    ); ?></small>
                                 </td>
                             </tr>
                         <?php else: ?>
@@ -1118,6 +1162,29 @@ class Mira_Language_Switcher {
         // Get translation languages (all enabled except default)
         $translation_languages = array_diff($enabled_languages, array($default_language));
 
+        // Which post type this submission covers — the form only lists default-language
+        // posts of one translatable post type at a time, so we must only touch the
+        // translation-link entries that belong to that post type and leave every other
+        // post type's links (page, seminars, ...) untouched below.
+        $translatable_types = self::get_translatable_post_types();
+        $post_type          = isset($_POST['mira_post_type']) ? sanitize_key($_POST['mira_post_type']) : 'page';
+        if (!in_array($post_type, $translatable_types, true)) {
+            $post_type = reset($translatable_types);
+        }
+
+        // IDs of default-language posts of this post type — the only keys this
+        // submission is allowed to add, change, or remove in the stored option.
+        $scope_ids = get_posts(array(
+            'post_type'      => $post_type,
+            'post_status'    => array('publish', 'draft'),
+            'meta_key'       => '_mira_page_language',
+            'meta_value'     => $default_language,
+            'fields'         => 'ids',
+            'numberposts'    => -1,
+            'no_found_rows'  => true,
+        ));
+        $scope_ids = array_map('absint', $scope_ids);
+
         // Get the translations data
         $translations = isset($_POST['translations']) ? $_POST['translations'] : array();
 
@@ -1126,7 +1193,7 @@ class Mira_Language_Switcher {
         foreach ($translations as $page_id => $langs) {
             $page_id = absint($page_id);
 
-            if ($page_id > 0) {
+            if ($page_id > 0 && in_array($page_id, $scope_ids, true)) {
                 $clean_translations[$page_id] = array();
 
                 // Process each translation language dynamically
@@ -1143,13 +1210,30 @@ class Mira_Language_Switcher {
             }
         }
 
+        // Merge into the existing option: drop this post type's previous entries
+        // (about to be fully replaced by the submission), keep every other post
+        // type's entries untouched, then add back the cleaned submission.
+        // (Not array_merge() — that renumbers integer keys and would corrupt
+        // the post-ID-keyed structure.)
+        $links = get_option(MIRA_LS_TRANSLATIONS_OPTION, array());
+        if (!is_array($links)) {
+            $links = array();
+        }
+        foreach ($scope_ids as $id) {
+            unset($links[$id]);
+        }
+        foreach ($clean_translations as $id => $value) {
+            $links[$id] = $value;
+        }
+
         // Save to database
-        update_option(MIRA_LS_TRANSLATIONS_OPTION, $clean_translations);
+        update_option(MIRA_LS_TRANSLATIONS_OPTION, $links);
 
         // Redirect back to settings page with success message
         wp_redirect(add_query_arg(
             array(
                 'page' => 'mira-language-switcher-translations',
+                'mira_post_type' => $post_type,
                 'settings-updated' => 'true'
             ),
             admin_url('admin.php')
@@ -1191,17 +1275,36 @@ class Mira_Language_Switcher {
     }
 
     /**
+     * Post types that get the "separate post per language" translation
+     * treatment (Language metabox, translation links, translated-slug URLs)
+     * rather than being treated as a single untranslated CPT post.
+     *
+     * Other plugins opt in via the filter, e.g.:
+     *   add_filter( 'mira_ls_translatable_post_types', function( $types ) {
+     *       $types[] = 'seminars';
+     *       return $types;
+     *   } );
+     *
+     * @return string[]
+     */
+    public static function get_translatable_post_types() {
+        return apply_filters( 'mira_ls_translatable_post_types', array( 'page' ) );
+    }
+
+    /**
      * Add language metabox to page edit screen
      */
     public function add_language_metabox() {
-        add_meta_box(
-            'mira_page_language',
-            __('Language', 'mira-language-switcher'),
-            array($this, 'render_language_metabox'),
-            'page',
-            'side',
-            'high'
-        );
+        foreach ( self::get_translatable_post_types() as $post_type ) {
+            add_meta_box(
+                'mira_page_language',
+                __('Language', 'mira-language-switcher'),
+                array($this, 'render_language_metabox'),
+                $post_type,
+                'side',
+                'high'
+            );
+        }
     }
 
     /**
@@ -1277,7 +1380,7 @@ class Mira_Language_Switcher {
             <?php foreach ( $other_languages as $other_lang ) :
                 $lang_name     = isset( $all_language_names[ $other_lang ] ) ? $all_language_names[ $other_lang ] : strtoupper( $other_lang );
                 $pages_in_lang = get_posts( array(
-                    'post_type'      => 'page',
+                    'post_type'      => $post->post_type,
                     'post_status'    => array( 'publish', 'draft' ),
                     'meta_key'       => '_mira_page_language',
                     'meta_value'     => $other_lang,
@@ -1337,8 +1440,8 @@ class Mira_Language_Switcher {
             return;
         }
 
-        // Check if this is a page
-        if (get_post_type($post_id) !== 'page') {
+        // Check if this post type participates in translation
+        if ( ! in_array( get_post_type( $post_id ), self::get_translatable_post_types(), true ) ) {
             return;
         }
 
@@ -1934,10 +2037,13 @@ class Mira_Language_Switcher {
         }
 
         // --- CPT handling ---
-        // CPTs (exhibitors, seminars, speakers, sponsors, etc.) are never translated.
-        // Always link back to the same post content, prefixed with the post-type rewrite
-        // slug so WordPress can resolve it. The language cookie handles the menu language.
-        if ($current_page->post_type !== 'page' && $current_page->post_type !== 'post') {
+        // CPTs not in the translatable-post-types list (exhibitors, speakers, sponsors, etc.)
+        // are never translated. Always link back to the same post content, prefixed with the
+        // post-type rewrite slug so WordPress can resolve it. The language cookie handles the
+        // menu language. Post types opted into get_translatable_post_types() (e.g. seminars,
+        // via the 'mira_ls_translatable_post_types' filter) fall through to the page-style
+        // translated-slug logic below instead.
+        if ( 'post' !== $current_page->post_type && ! in_array( $current_page->post_type, self::get_translatable_post_types(), true ) ) {
             $pt_obj   = get_post_type_object($current_page->post_type);
             $cpt_slug = ($pt_obj && !empty($pt_obj->rewrite['slug']))
                 ? $pt_obj->rewrite['slug'] . '/'
@@ -1950,25 +2056,36 @@ class Mira_Language_Switcher {
         }
         // --- end CPT handling ---
 
+        // Rewrite-slug prefix for translatable non-page/post types (e.g. "seminar/" for
+        // seminars, via the 'mira_ls_translatable_post_types' filter). Empty for 'page'
+        // and 'post', which resolve at the site root.
+        $slug_prefix = '';
+        if ( 'page' !== $current_page->post_type && 'post' !== $current_page->post_type ) {
+            $pt_obj = get_post_type_object( $current_page->post_type );
+            if ( $pt_obj && ! empty( $pt_obj->rewrite['slug'] ) ) {
+                $slug_prefix = $pt_obj->rewrite['slug'] . '/';
+            }
+        }
+
         // If current page is in default language
         if ($current_lang === $default_language) {
             $current_slug = $current_page->post_name;
 
             if ($target_lang === $default_language) {
                 // Same language — bare URL (no prefix for default language)
-                return home_url('/' . $current_slug . '/');
+                return home_url('/' . $slug_prefix . $current_slug . '/');
             } else {
                 // Different language — find translation
                 $translated_id = self::get_translation($current_page_id, $target_lang);
                 if ($translated_id) {
                     $translated_page = get_post($translated_id);
                     $translated_slug = $translated_page ? $translated_page->post_name : $current_slug;
-                    return home_url('/' . $target_lang . '/' . $translated_slug . '/');
+                    return home_url('/' . $target_lang . '/' . $slug_prefix . $translated_slug . '/');
                 }
                 // No translation exists — use the same slug with the target language prefix.
                 // WordPress finds the page by slug, loads the default-language content,
                 // and detect_language() sets the cookie from the URL prefix.
-                return home_url('/' . $target_lang . '/' . $current_slug . '/');
+                return home_url('/' . $target_lang . '/' . $slug_prefix . $current_slug . '/');
             }
         }
 
@@ -1988,9 +2105,9 @@ class Mira_Language_Switcher {
             // This shows the same page content in the new language context.
             $current_slug = $current_page->post_name;
             if ($target_lang === $default_language) {
-                return home_url('/' . $current_slug . '/');
+                return home_url('/' . $slug_prefix . $current_slug . '/');
             }
-            return home_url('/' . $target_lang . '/' . $current_slug . '/');
+            return home_url('/' . $target_lang . '/' . $slug_prefix . $current_slug . '/');
         }
 
         $default_page = get_post($default_page_id);
@@ -2005,18 +2122,18 @@ class Mira_Language_Switcher {
 
         // If target is default language — bare URL, no prefix
         if ($target_lang === $default_language) {
-            return home_url('/' . $default_slug . '/');
+            return home_url('/' . $slug_prefix . $default_slug . '/');
         }
 
         // If target is another translation — use that translation's own slug
         if (isset($links[$default_page_id][$target_lang])) {
             $other_page = get_post($links[$default_page_id][$target_lang]);
             $other_slug = $other_page ? $other_page->post_name : $default_slug;
-            return home_url('/' . $target_lang . '/' . $other_slug . '/');
+            return home_url('/' . $target_lang . '/' . $slug_prefix . $other_slug . '/');
         }
 
         // No translation exists — use same slug with target language prefix
-        return home_url('/' . $target_lang . '/' . $default_slug . '/');
+        return home_url('/' . $target_lang . '/' . $slug_prefix . $default_slug . '/');
     }
 
     /**
@@ -2467,6 +2584,179 @@ class Mira_Language_Switcher {
             'settings-updated' => 'true',
         ), admin_url('admin.php')));
         exit;
+    }
+
+    /**
+     * Render a per-language flag-switcher for a single translatable meta-field group.
+     *
+     * Generalizes the bio-language-switcher pattern the (separate) exhibitors
+     * plugin already implements for itself, so any plugin can reuse the same
+     * flag-buttons/JS instead of re-implementing it. Non-default language text
+     * lives in post meta keyed "{$meta_key_base}_{$lang}"; the default-language
+     * text is supplied by the caller since it usually already lives elsewhere
+     * (e.g. post_content).
+     *
+     * @param int    $post_id       Post ID.
+     * @param string $meta_key_base Meta key prefix, e.g. 'speaker_bio'.
+     * @param string $default_text  Already-formatted default-language HTML/text.
+     * @param array  $args          Optional: 'wrap_id' (string) wrapper element ID.
+     * @return string HTML. Falls back to plain wpautop'd $default_text when only
+     *                one language has content (nothing to switch between).
+     */
+    public static function render_translatable_field( $post_id, $meta_key_base, $default_text, $args = array() ) {
+        if ( ! defined( 'MIRA_LS_SUPPORTED_LANGUAGES' ) ) {
+            return ! empty( $default_text ) ? wpautop( $default_text ) : '';
+        }
+
+        $default_lang  = get_option( 'mira_ls_default_language', 'en' );
+        $enabled_langs = get_option( 'mira_ls_enabled_languages', array( 'en' ) );
+        $flag_type     = get_option( 'mira_ls_menu_flag_type', 'emoji' );
+
+        $flags  = array( 'en' => '🇬🇧', 'it' => '🇮🇹', 'es' => '🇪🇸', 'fr' => '🇫🇷', 'de' => '🇩🇪', 'pt' => '🇵🇹' );
+        $labels = array( 'en' => 'English', 'it' => 'Italian', 'es' => 'Spanish', 'fr' => 'French', 'de' => 'German', 'pt' => 'Portuguese' );
+
+        $texts = array();
+        foreach ( $enabled_langs as $lang ) {
+            $text = ( $lang === $default_lang ) ? $default_text : get_post_meta( $post_id, $meta_key_base . '_' . $lang, true );
+            if ( ! empty( $text ) ) {
+                $texts[ $lang ] = $text;
+            }
+        }
+
+        if ( count( $texts ) <= 1 ) {
+            return ! empty( $default_text ) ? wpautop( $default_text ) : '';
+        }
+
+        $active_lang = isset( $_COOKIE['mira_language'] ) ? sanitize_key( $_COOKIE['mira_language'] ) : $default_lang;
+        if ( ! array_key_exists( $active_lang, $texts ) ) {
+            $active_lang = $default_lang;
+        }
+
+        $wrap_id = isset( $args['wrap_id'] ) ? sanitize_html_class( $args['wrap_id'] ) : 'mira-lang-field-' . absint( $post_id );
+
+        $html  = '<div class="mira-lang-field" id="' . esc_attr( $wrap_id ) . '">';
+        $html .= '<div class="mira-lang-field-switcher">';
+        foreach ( $texts as $lang => $text ) {
+            $flag   = ( 'text' === $flag_type ) ? esc_html( strtoupper( $lang ) ) : ( isset( $flags[ $lang ] ) ? $flags[ $lang ] : esc_html( strtoupper( $lang ) ) );
+            $label  = isset( $labels[ $lang ] ) ? $labels[ $lang ] : strtoupper( $lang );
+            $active = ( $lang === $active_lang ) ? ' mira-lang-field-btn-active' : '';
+            $html  .= ' <button type="button" class="mira-lang-field-btn' . $active . '" data-lang="' . esc_attr( $lang ) . '" aria-label="' . esc_attr( $label ) . '">' . $flag . '</button>';
+        }
+        $html .= '</div>';
+        foreach ( $texts as $lang => $text ) {
+            $hidden = ( $lang === $active_lang ) ? '' : ' style="display:none"';
+            $html  .= '<div class="mira-lang-field-text" data-lang="' . esc_attr( $lang ) . '"' . $hidden . '>' . wpautop( $text ) . '</div>';
+        }
+        $html .= '</div>';
+        $html .= self::translatable_field_script();
+
+        return $html;
+    }
+
+    /**
+     * The show/hide-on-click JS for render_translatable_field(), output once per
+     * page load regardless of how many translatable fields are rendered on it.
+     */
+    private static function translatable_field_script() {
+        static $printed = false;
+        if ( $printed ) {
+            return '';
+        }
+        $printed = true;
+
+        return "<script>document.addEventListener('DOMContentLoaded', function() {
+document.querySelectorAll('.mira-lang-field-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+        var wrap = this.closest('.mira-lang-field');
+        var lang = this.getAttribute('data-lang');
+        wrap.querySelectorAll('.mira-lang-field-btn').forEach(function(b) { b.classList.remove('mira-lang-field-btn-active'); });
+        wrap.querySelectorAll('.mira-lang-field-text').forEach(function(d) { d.style.display = 'none'; });
+        this.classList.add('mira-lang-field-btn-active');
+        var target = wrap.querySelector('.mira-lang-field-text[data-lang=\"' + lang + '\"]');
+        if (target) { target.style.display = ''; }
+    });
+});
+});</script>";
+    }
+
+    /**
+     * Render admin textarea fields for each non-default enabled language, for
+     * use inside a post-edit meta box. Values are read/written to post meta
+     * "{$meta_key_base}_{$lang}" — pair with save_translatable_field().
+     *
+     * @param int    $post_id       Post ID.
+     * @param string $meta_key_base Meta key prefix, e.g. 'speaker_bio'.
+     */
+    public static function render_translatable_field_admin( $post_id, $meta_key_base ) {
+        if ( ! defined( 'MIRA_LS_SUPPORTED_LANGUAGES' ) ) {
+            return;
+        }
+
+        $default_lang  = get_option( 'mira_ls_default_language', 'en' );
+        $enabled_langs = get_option( 'mira_ls_enabled_languages', array( 'en' ) );
+        $other_langs   = array_values( array_diff( $enabled_langs, array( $default_lang ) ) );
+
+        if ( empty( $other_langs ) ) {
+            return;
+        }
+
+        $labels = array( 'en' => 'English', 'it' => 'Italian', 'es' => 'Spanish', 'fr' => 'French', 'de' => 'German', 'pt' => 'Portuguese' );
+
+        wp_nonce_field( 'mira_ls_translatable_field_' . $meta_key_base, 'mira_ls_translatable_field_nonce_' . $meta_key_base );
+
+        echo '<div class="clear meta-box">';
+        foreach ( $other_langs as $lang ) {
+            $label = isset( $labels[ $lang ] ) ? $labels[ $lang ] : strtoupper( $lang );
+            $value = get_post_meta( $post_id, $meta_key_base . '_' . $lang, true );
+            echo '<div class="meta-box-title">' . esc_html( $label ) . ' Bio</div>';
+            echo '<div class="meta-box-inside">';
+            echo '<textarea name="' . esc_attr( $meta_key_base . '_' . $lang ) . '" class="widefat" rows="6">' . esc_textarea( $value ) . '</textarea>';
+            /* translators: %s: language name */
+            echo '<p class="description">' . esc_html( sprintf( __( 'Shown when the visitor switches to %s. Leave blank to only show the default text.', 'mira-language-switcher' ), $label ) ) . '</p>';
+            echo '</div>';
+        }
+        echo '</div>';
+    }
+
+    /**
+     * Save the fields rendered by render_translatable_field_admin(). Call from
+     * the CPT's own save_post handler, after its own nonce/permission checks —
+     * this performs its own independent nonce check so the helper is safe to
+     * call on its own too.
+     *
+     * @param int    $post_id       Post ID.
+     * @param string $meta_key_base Meta key prefix, e.g. 'speaker_bio'.
+     */
+    public static function save_translatable_field( $post_id, $meta_key_base ) {
+        if ( ! defined( 'MIRA_LS_SUPPORTED_LANGUAGES' ) ) {
+            return;
+        }
+
+        $nonce_field = 'mira_ls_translatable_field_nonce_' . $meta_key_base;
+        if ( ! isset( $_POST[ $nonce_field ] ) || ! wp_verify_nonce( $_POST[ $nonce_field ], 'mira_ls_translatable_field_' . $meta_key_base ) ) {
+            return;
+        }
+
+        if ( ! current_user_can( 'edit_post', $post_id ) ) {
+            return;
+        }
+
+        $default_lang  = get_option( 'mira_ls_default_language', 'en' );
+        $enabled_langs = get_option( 'mira_ls_enabled_languages', array( 'en' ) );
+        $other_langs   = array_diff( $enabled_langs, array( $default_lang ) );
+
+        foreach ( $other_langs as $lang ) {
+            $field = $meta_key_base . '_' . $lang;
+            if ( ! isset( $_POST[ $field ] ) ) {
+                continue;
+            }
+            $value = wp_kses_post( wp_unslash( $_POST[ $field ] ) );
+            if ( '' === trim( $value ) ) {
+                delete_post_meta( $post_id, $field );
+            } else {
+                update_post_meta( $post_id, $field, $value );
+            }
+        }
     }
 
     /**
