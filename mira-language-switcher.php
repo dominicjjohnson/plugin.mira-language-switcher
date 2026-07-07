@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.27
+ * Version: 1.2.28
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,14 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.28 - Add render_translatable_field_group() so multiple fields (e.g. title +
+ *          body) on a single post can share one flag switcher instead of each
+ *          getting its own. render_translatable_field_admin() now takes an $args
+ *          array ('field_label', 'input') instead of hardcoding "Bio"/textarea, so
+ *          it can be reused for other field types (e.g. mira-event's seminar
+ *          title). Switcher JS now matches buttons/text blocks via a shared
+ *          data-group attribute instead of DOM ancestry, so switched fields no
+ *          longer need to sit inside the same wrapper element.
  * 1.2.27 - Generalize page translation (Language metabox, translation links, translated-slug
  *          URLs) to any post type via the 'mira_ls_translatable_post_types' filter, so other
  *          plugins (e.g. mira-event's seminars) can opt in without page-specific hardcoding.
@@ -46,7 +54,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.27');
+define('MIRA_LS_VERSION', '1.2.28');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -2037,12 +2045,12 @@ class Mira_Language_Switcher {
         }
 
         // --- CPT handling ---
-        // CPTs not in the translatable-post-types list (exhibitors, speakers, sponsors, etc.)
-        // are never translated. Always link back to the same post content, prefixed with the
-        // post-type rewrite slug so WordPress can resolve it. The language cookie handles the
-        // menu language. Post types opted into get_translatable_post_types() (e.g. seminars,
-        // via the 'mira_ls_translatable_post_types' filter) fall through to the page-style
-        // translated-slug logic below instead.
+        // CPTs not in the translatable-post-types list (exhibitors, speakers, sponsors,
+        // seminars, etc.) are never translated. Always link back to the same post content,
+        // prefixed with the post-type rewrite slug so WordPress can resolve it. The language
+        // cookie handles the menu language. Post types opted into get_translatable_post_types()
+        // via the 'mira_ls_translatable_post_types' filter (currently none besides 'page')
+        // fall through to the page-style translated-slug logic below instead.
         if ( 'post' !== $current_page->post_type && ! in_array( $current_page->post_type, self::get_translatable_post_types(), true ) ) {
             $pt_obj   = get_post_type_object($current_page->post_type);
             $cpt_slug = ($pt_obj && !empty($pt_obj->rewrite['slug']))
@@ -2056,9 +2064,9 @@ class Mira_Language_Switcher {
         }
         // --- end CPT handling ---
 
-        // Rewrite-slug prefix for translatable non-page/post types (e.g. "seminar/" for
-        // seminars, via the 'mira_ls_translatable_post_types' filter). Empty for 'page'
-        // and 'post', which resolve at the site root.
+        // Rewrite-slug prefix for translatable non-page/post types opted in via the
+        // 'mira_ls_translatable_post_types' filter. Empty for 'page' and 'post', which
+        // resolve at the site root.
         $slug_prefix = '';
         if ( 'page' !== $current_page->post_type && 'post' !== $current_page->post_type ) {
             $pt_obj = get_post_type_object( $current_page->post_type );
@@ -2640,12 +2648,12 @@ class Mira_Language_Switcher {
             $flag   = ( 'text' === $flag_type ) ? esc_html( strtoupper( $lang ) ) : ( isset( $flags[ $lang ] ) ? $flags[ $lang ] : esc_html( strtoupper( $lang ) ) );
             $label  = isset( $labels[ $lang ] ) ? $labels[ $lang ] : strtoupper( $lang );
             $active = ( $lang === $active_lang ) ? ' mira-lang-field-btn-active' : '';
-            $html  .= ' <button type="button" class="mira-lang-field-btn' . $active . '" data-lang="' . esc_attr( $lang ) . '" aria-label="' . esc_attr( $label ) . '">' . $flag . '</button>';
+            $html  .= ' <button type="button" class="mira-lang-field-btn' . $active . '" data-group="' . esc_attr( $wrap_id ) . '" data-lang="' . esc_attr( $lang ) . '" aria-label="' . esc_attr( $label ) . '">' . $flag . '</button>';
         }
         $html .= '</div>';
         foreach ( $texts as $lang => $text ) {
             $hidden = ( $lang === $active_lang ) ? '' : ' style="display:none"';
-            $html  .= '<div class="mira-lang-field-text" data-lang="' . esc_attr( $lang ) . '"' . $hidden . '>' . wpautop( $text ) . '</div>';
+            $html  .= '<div class="mira-lang-field-text" data-group="' . esc_attr( $wrap_id ) . '" data-lang="' . esc_attr( $lang ) . '"' . $hidden . '>' . wpautop( $text ) . '</div>';
         }
         $html .= '</div>';
         $html .= self::translatable_field_script();
@@ -2654,8 +2662,125 @@ class Mira_Language_Switcher {
     }
 
     /**
-     * The show/hide-on-click JS for render_translatable_field(), output once per
-     * page load regardless of how many translatable fields are rendered on it.
+     * Like render_translatable_field(), but for multiple fields on the same post
+     * (e.g. title + body) that should switch language together via one shared
+     * flag switcher instead of each field getting its own.
+     *
+     * Unlike render_translatable_field(), the switcher and each field's markup
+     * are returned separately so the caller can place them wherever they fall in
+     * the surrounding template (e.g. switcher + title at the top, body further
+     * down) — they stay wired together via a shared data-group attribute rather
+     * than needing to share a DOM ancestor.
+     *
+     * @param int   $post_id Post ID.
+     * @param array $fields  Assoc array keyed by an arbitrary field key, each a
+     *                       config array:
+     *                       'meta_key_base' (string, required) meta key prefix, e.g. 'seminar_title'.
+     *                       'default_text'  (string, required) default-language text/HTML.
+     *                       'tag'           (string) wrapper element tag, default 'div'.
+     *                       'class'         (string) extra class(es) on the wrapper element.
+     *                       'wpautop'       (bool) whether to wpautop the text, default true.
+     *                       'prefix'        (string) raw HTML prepended before the text in every
+     *                                       language block (for static, non-translated content
+     *                                       that should still appear alongside the switched field).
+     * @param array $args    Optional: 'wrap_id'.
+     * @return array{switcher: string, fields: array<string,string>} 'switcher' is empty
+     *               string when there's nothing to switch between (falls back to
+     *               plain default-language markup in 'fields').
+     */
+    public static function render_translatable_field_group( $post_id, array $fields, $args = array() ) {
+        $default_only = function () use ( $fields ) {
+            $out = array();
+            foreach ( $fields as $field_key => $field ) {
+                $tag     = isset( $field['tag'] ) ? $field['tag'] : 'div';
+                $class   = isset( $field['class'] ) ? ' class="' . esc_attr( $field['class'] ) . '"' : '';
+                $wpautop = ! isset( $field['wpautop'] ) || $field['wpautop'];
+                $prefix  = isset( $field['prefix'] ) ? $field['prefix'] : '';
+                $text    = isset( $field['default_text'] ) ? $field['default_text'] : '';
+                $text    = $wpautop ? wpautop( $text ) : $text;
+                $out[ $field_key ] = '<' . $tag . $class . '>' . $prefix . $text . '</' . $tag . '>';
+            }
+            return $out;
+        };
+
+        if ( ! defined( 'MIRA_LS_SUPPORTED_LANGUAGES' ) ) {
+            return array( 'switcher' => '', 'fields' => $default_only() );
+        }
+
+        $default_lang  = get_option( 'mira_ls_default_language', 'en' );
+        $enabled_langs = get_option( 'mira_ls_enabled_languages', array( 'en' ) );
+        $flag_type     = get_option( 'mira_ls_menu_flag_type', 'emoji' );
+
+        $flags  = array( 'en' => '🇬🇧', 'it' => '🇮🇹', 'es' => '🇪🇸', 'fr' => '🇫🇷', 'de' => '🇩🇪', 'pt' => '🇵🇹' );
+        $labels = array( 'en' => 'English', 'it' => 'Italian', 'es' => 'Spanish', 'fr' => 'French', 'de' => 'German', 'pt' => 'Portuguese' );
+
+        // A language gets a switcher button if ANY field has an override saved
+        // for it — fields missing an override for that language fall back to
+        // the default-language text (rather than being omitted).
+        $langs_with_content = array( $default_lang => true );
+        foreach ( $enabled_langs as $lang ) {
+            if ( $lang === $default_lang ) {
+                continue;
+            }
+            foreach ( $fields as $field ) {
+                if ( ! empty( get_post_meta( $post_id, $field['meta_key_base'] . '_' . $lang, true ) ) ) {
+                    $langs_with_content[ $lang ] = true;
+                    break;
+                }
+            }
+        }
+
+        if ( count( $langs_with_content ) <= 1 ) {
+            return array( 'switcher' => '', 'fields' => $default_only() );
+        }
+
+        $active_lang = isset( $_COOKIE['mira_language'] ) ? sanitize_key( $_COOKIE['mira_language'] ) : $default_lang;
+        if ( ! array_key_exists( $active_lang, $langs_with_content ) ) {
+            $active_lang = $default_lang;
+        }
+
+        $wrap_id = isset( $args['wrap_id'] ) ? sanitize_html_class( $args['wrap_id'] ) : 'mira-lang-field-' . absint( $post_id );
+
+        $switcher = '<div class="mira-lang-field-switcher" data-group="' . esc_attr( $wrap_id ) . '">';
+        foreach ( $langs_with_content as $lang => $unused ) {
+            $flag      = ( 'text' === $flag_type ) ? esc_html( strtoupper( $lang ) ) : ( isset( $flags[ $lang ] ) ? $flags[ $lang ] : esc_html( strtoupper( $lang ) ) );
+            $label     = isset( $labels[ $lang ] ) ? $labels[ $lang ] : strtoupper( $lang );
+            $active    = ( $lang === $active_lang ) ? ' mira-lang-field-btn-active' : '';
+            $switcher .= ' <button type="button" class="mira-lang-field-btn' . $active . '" data-group="' . esc_attr( $wrap_id ) . '" data-lang="' . esc_attr( $lang ) . '" aria-label="' . esc_attr( $label ) . '">' . $flag . '</button>';
+        }
+        $switcher .= '</div>';
+        $switcher .= self::translatable_field_script();
+
+        $result = array( 'switcher' => $switcher, 'fields' => array() );
+
+        foreach ( $fields as $field_key => $field ) {
+            $tag     = isset( $field['tag'] ) ? $field['tag'] : 'div';
+            $class   = 'mira-lang-field-text' . ( isset( $field['class'] ) ? ' ' . $field['class'] : '' );
+            $wpautop = ! isset( $field['wpautop'] ) || $field['wpautop'];
+            $prefix  = isset( $field['prefix'] ) ? $field['prefix'] : '';
+
+            $html = '';
+            foreach ( $langs_with_content as $lang => $unused ) {
+                $text = ( $lang === $default_lang ) ? $field['default_text'] : get_post_meta( $post_id, $field['meta_key_base'] . '_' . $lang, true );
+                if ( empty( $text ) ) {
+                    $text = $field['default_text'];
+                }
+                $text   = $wpautop ? wpautop( $text ) : $text;
+                $hidden = ( $lang === $active_lang ) ? '' : ' style="display:none"';
+                $html  .= '<' . $tag . ' class="' . esc_attr( $class ) . '" data-group="' . esc_attr( $wrap_id ) . '" data-lang="' . esc_attr( $lang ) . '"' . $hidden . '>' . $prefix . $text . '</' . $tag . '>';
+            }
+            $result['fields'][ $field_key ] = $html;
+        }
+
+        return $result;
+    }
+
+    /**
+     * The show/hide-on-click JS for render_translatable_field() and
+     * render_translatable_field_group(), output once per page load regardless of
+     * how many translatable fields/groups are rendered on it. Buttons and text
+     * blocks are matched by a shared data-group attribute (not DOM ancestry), so
+     * a group's fields don't need to share a wrapper element.
      */
     private static function translatable_field_script() {
         static $printed = false;
@@ -2667,13 +2792,14 @@ class Mira_Language_Switcher {
         return "<script>document.addEventListener('DOMContentLoaded', function() {
 document.querySelectorAll('.mira-lang-field-btn').forEach(function(btn) {
     btn.addEventListener('click', function() {
-        var wrap = this.closest('.mira-lang-field');
-        var lang = this.getAttribute('data-lang');
-        wrap.querySelectorAll('.mira-lang-field-btn').forEach(function(b) { b.classList.remove('mira-lang-field-btn-active'); });
-        wrap.querySelectorAll('.mira-lang-field-text').forEach(function(d) { d.style.display = 'none'; });
-        this.classList.add('mira-lang-field-btn-active');
-        var target = wrap.querySelector('.mira-lang-field-text[data-lang=\"' + lang + '\"]');
-        if (target) { target.style.display = ''; }
+        var group = this.getAttribute('data-group');
+        var lang  = this.getAttribute('data-lang');
+        document.querySelectorAll('.mira-lang-field-btn[data-group=\"' + group + '\"]').forEach(function(b) {
+            b.classList.toggle('mira-lang-field-btn-active', b.getAttribute('data-lang') === lang);
+        });
+        document.querySelectorAll('.mira-lang-field-text[data-group=\"' + group + '\"]').forEach(function(d) {
+            d.style.display = (d.getAttribute('data-lang') === lang) ? '' : 'none';
+        });
     });
 });
 });</script>";
@@ -2686,8 +2812,11 @@ document.querySelectorAll('.mira-lang-field-btn').forEach(function(btn) {
      *
      * @param int    $post_id       Post ID.
      * @param string $meta_key_base Meta key prefix, e.g. 'speaker_bio'.
+     * @param array  $args          Optional: 'field_label' (string, default 'Bio') shown as
+     *                              "{Language} {field_label}"; 'input' ('textarea'|'text',
+     *                              default 'textarea').
      */
-    public static function render_translatable_field_admin( $post_id, $meta_key_base ) {
+    public static function render_translatable_field_admin( $post_id, $meta_key_base, $args = array() ) {
         if ( ! defined( 'MIRA_LS_SUPPORTED_LANGUAGES' ) ) {
             return;
         }
@@ -2700,7 +2829,9 @@ document.querySelectorAll('.mira-lang-field-btn').forEach(function(btn) {
             return;
         }
 
-        $labels = array( 'en' => 'English', 'it' => 'Italian', 'es' => 'Spanish', 'fr' => 'French', 'de' => 'German', 'pt' => 'Portuguese' );
+        $labels      = array( 'en' => 'English', 'it' => 'Italian', 'es' => 'Spanish', 'fr' => 'French', 'de' => 'German', 'pt' => 'Portuguese' );
+        $field_label = isset( $args['field_label'] ) ? $args['field_label'] : 'Bio';
+        $input_type  = isset( $args['input'] ) ? $args['input'] : 'textarea';
 
         wp_nonce_field( 'mira_ls_translatable_field_' . $meta_key_base, 'mira_ls_translatable_field_nonce_' . $meta_key_base );
 
@@ -2708,9 +2839,13 @@ document.querySelectorAll('.mira-lang-field-btn').forEach(function(btn) {
         foreach ( $other_langs as $lang ) {
             $label = isset( $labels[ $lang ] ) ? $labels[ $lang ] : strtoupper( $lang );
             $value = get_post_meta( $post_id, $meta_key_base . '_' . $lang, true );
-            echo '<div class="meta-box-title">' . esc_html( $label ) . ' Bio</div>';
+            echo '<div class="meta-box-title">' . esc_html( $label . ' ' . $field_label ) . '</div>';
             echo '<div class="meta-box-inside">';
-            echo '<textarea name="' . esc_attr( $meta_key_base . '_' . $lang ) . '" class="widefat" rows="6">' . esc_textarea( $value ) . '</textarea>';
+            if ( 'text' === $input_type ) {
+                echo '<input type="text" name="' . esc_attr( $meta_key_base . '_' . $lang ) . '" class="widefat" value="' . esc_attr( $value ) . '" />';
+            } else {
+                echo '<textarea name="' . esc_attr( $meta_key_base . '_' . $lang ) . '" class="widefat" rows="6">' . esc_textarea( $value ) . '</textarea>';
+            }
             /* translators: %s: language name */
             echo '<p class="description">' . esc_html( sprintf( __( 'Shown when the visitor switches to %s. Leave blank to only show the default text.', 'mira-language-switcher' ), $label ) ) . '</p>';
             echo '</div>';

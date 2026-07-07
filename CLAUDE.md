@@ -55,11 +55,12 @@ constructor — that's the fastest way to find what a given request path does.
   truth for which post types get this "separate post per language" treatment
   (Language metabox, translation links, translated-slug URLs) rather than
   being treated as a single never-translated CPT. Other plugins opt in via
-  the `mira_ls_translatable_post_types` filter — e.g. `mira-event` adds
-  `seminars` this way (see `seminars/cpt/seminars.php`). Everything hardcoded
-  to `'page'` before v1.2.27 (metabox registration, the Translation Links
-  admin page, the page-by-slug lookup in `load_translated_content()`, the
+  the `mira_ls_translatable_post_types` filter. Everything hardcoded to
+  `'page'` before v1.2.27 (metabox registration, the Translation Links admin
+  page, the page-by-slug lookup in `load_translated_content()`, the
   CPT-vs-page branch in `get_language_url()`) now reads this list instead.
+  As of v1.2.32, `mira-event`'s `seminars` CPT no longer opts into this —
+  see the single-post-per-language note below.
 - Term (taxonomy) translations are stored per-term in term meta
   `category_name_{lang}` (kept intentionally aligned with the sibling
   `cw-plugin-exhibitors` plugin's meta key naming — see v1.2.26 changelog
@@ -128,21 +129,33 @@ constructor — that's the fastest way to find what a given request path does.
   above) — the exhibitor-bio style. They read/write plain post meta keyed
   `{$meta_key_base}_{$lang}` for non-default languages, and the caller
   supplies the default-language text (since it usually already lives
-  elsewhere, e.g. `post_content`). `mira-event`'s speakers CPT is the first
+  elsewhere, e.g. `post_content`). `render_translatable_field_admin()` takes
+  an `$args` array (`field_label`, `input`) so the admin UI text/input type
+  isn't hardcoded to "Bio"/textarea. `mira-event`'s speakers CPT is the first
   consumer (`speaker_bio`); `cw-plugin-exhibitors` predates these helpers and
   still has its own independent, unrelated implementation of the same idea
   for `ex_rich_text_profile` — not worth retrofitting.
+- `render_translatable_field_group()` (static, v1.2.28+) is for multiple
+  fields on one post that should switch language together via a *single*
+  shared flag switcher — e.g. `mira-event`'s seminar title + body. It returns
+  `['switcher' => ..., 'fields' => ['key' => html, ...]]` rather than one HTML
+  blob, since the switcher and each field often land in different places in
+  the surrounding template (title near the top, body further down). Buttons
+  and text blocks are tied together by a shared `data-group` attribute rather
+  than DOM nesting, so they don't need a common wrapper element.
 
 ### Conventions worth preserving
 - WPML-style URL scheme is intentional: **default language never gets a URL
   prefix**; only non-default enabled languages do. Don't "fix" this to prefix
   every language uniformly.
-- CPT content (exhibitors/speakers/sponsors, etc., from the sibling
+- CPT content (exhibitors/speakers/sponsors, seminars, etc., from the sibling
   `cw-plugin-exhibitors` and `mira-event` plugins) is never translated by
   default — only the URL prefix and surrounding chrome (menu, cookie banner)
-  change language for CPT pages. `mira-event`'s `seminars` post type is the
-  one exception, having opted into `get_translatable_post_types()` — it gets
-  the full separate-post-per-language treatment like pages instead.
+  change language for CPT pages. Per-language *content* on a CPT is opt-in via
+  the `render_translatable_field()` / `render_translatable_field_group()`
+  single-post pattern (e.g. `mira-event`'s speaker bio and seminar
+  title/body) — not via `get_translatable_post_types()`, which is reserved for
+  the separate-post-per-language pattern (currently only `page`).
 - When a translation doesn't exist for a page, link generation falls back to
   the *same slug* under the target language prefix rather than the homepage —
   preserve this behavior in any link-resolution changes.
