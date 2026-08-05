@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.30
+ * Version: 1.2.31
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,13 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.31 - Filter secondary queries (grid/loop shortcodes — e.g. WPBakery's Basic Grid)
+ *          for translatable post types down to the current language via a new
+ *          pre_get_posts handler, filter_secondary_queries_by_language(). Previously
+ *          only the main query was language-filtered, so shortcode-driven post grids
+ *          showed every language mixed together. Untagged posts fall back to the
+ *          default language (matching get_page_language()) so existing content
+ *          doesn't disappear. No-op until a post type is opted into translation.
  * 1.2.30 - WPML Import: per-post-type checkboxes (with item/pair counts) so Pages and
  *          Posts can be imported independently instead of always both together —
  *          previously re-running the import would silently overwrite language/
@@ -66,7 +73,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.30');
+define('MIRA_LS_VERSION', '1.2.31');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -118,6 +125,10 @@ class Mira_Language_Switcher {
 
         // Load translated content
         add_action('pre_get_posts', array($this, 'load_translated_content'));
+
+        // Filter secondary queries (grid/loop shortcodes, e.g. WPBakery's Basic Grid)
+        // for translatable post types down to the current language
+        add_action('pre_get_posts', array($this, 'filter_secondary_queries_by_language'));
 
         // Register shortcodes
         add_shortcode('lang_flag_en', array($this, 'shortcode_lang_flag_en'));
@@ -712,6 +723,51 @@ class Mira_Language_Switcher {
             $query->is_archive  = false;
             $query->is_404      = false;
         }
+    }
+
+    /**
+     * Filter secondary queries (grid/loop shortcodes, e.g. WPBakery's Basic
+     * Grid — anything that isn't the main query, which load_translated_content()
+     * already handles) for translatable post types down to the current
+     * language, so shortcode-driven grids/loops only show content matching
+     * the active language instead of mixing every language together.
+     *
+     * @param WP_Query $query
+     */
+    public function filter_secondary_queries_by_language($query) {
+        if (is_admin() || $query->is_main_query()) {
+            return;
+        }
+
+        $post_types = (array) ($query->get('post_type') ?: 'post');
+
+        // Only step in when every requested post type is translatable — avoids
+        // touching CPTs (exhibitors, speakers, etc.) that never get this meta
+        // set, and avoids breaking mixed-type queries.
+        if (array_diff($post_types, self::get_translatable_post_types())) {
+            return;
+        }
+
+        $lang = $this->get_current_language();
+        if (empty($lang)) {
+            return;
+        }
+
+        $default_lang = get_option('mira_ls_default_language', 'en');
+
+        $lang_clause = array(
+            'relation' => 'OR',
+            array('key' => '_mira_page_language', 'value' => $lang, 'compare' => '='),
+        );
+        // Untagged posts count as default-language, matching get_page_language()'s fallback —
+        // otherwise never-tagged content would vanish from every language's grid.
+        if ($lang === $default_lang) {
+            $lang_clause[] = array('key' => '_mira_page_language', 'compare' => 'NOT EXISTS');
+        }
+
+        $meta_query   = (array) $query->get('meta_query');
+        $meta_query[] = $lang_clause;
+        $query->set('meta_query', $meta_query);
     }
 
     /**
