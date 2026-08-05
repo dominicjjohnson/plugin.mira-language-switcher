@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.29
+ * Version: 1.2.30
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,11 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.30 - WPML Import: per-post-type checkboxes (with item/pair counts) so Pages and
+ *          Posts can be imported independently instead of always both together —
+ *          previously re-running the import would silently overwrite language/
+ *          translation-link data on post types you didn't intend to touch (e.g.
+ *          already hand-adjusted Pages) whenever Posts translation was also enabled.
  * 1.2.29 - New per-site setting (Settings > Translation Behavior > Translate Blog Posts,
  *          default off) opts 'post' into get_translatable_post_types() via the
  *          mira_ls_translatable_post_types filter — gives Posts the same language
@@ -61,7 +66,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.29');
+define('MIRA_LS_VERSION', '1.2.30');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
