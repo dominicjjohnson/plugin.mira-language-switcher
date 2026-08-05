@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.32
+ * Version: 1.2.33
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,11 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.33 - Fix filter_secondary_queries_by_language() bailing on admin-ajax.php requests:
+ *          is_admin() is true there even when triggered from the front end, which meant
+ *          WPBakery's "Load More" grid pagination (and any other AJAX-paginated grid/loop)
+ *          silently stopped being language-filtered after the first server-rendered page.
+ *          Now checks wp_doing_ajax() too, so paginated pages are filtered consistently.
  * 1.2.32 - New Language Audit page (includes/language-audit.php): read-only report that
  *          flags translatable posts/pages whose tagged language disagrees with a
  *          stopword-frequency guess of the actual text (en/it/es). Built for cleaning up
@@ -80,7 +85,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.32');
+define('MIRA_LS_VERSION', '1.2.33');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -743,7 +748,10 @@ class Mira_Language_Switcher {
      * @param WP_Query $query
      */
     public function filter_secondary_queries_by_language($query) {
-        if (is_admin() || $query->is_main_query()) {
+        // is_admin() is true for admin-ajax.php requests even when triggered from the
+        // front end (e.g. WPBakery's "Load More" grid pagination) — check wp_doing_ajax()
+        // too, or paginated grid pages silently stop being language-filtered.
+        if ((is_admin() && !wp_doing_ajax()) || $query->is_main_query()) {
             return;
         }
 
