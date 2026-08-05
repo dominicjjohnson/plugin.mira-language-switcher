@@ -14,6 +14,7 @@ if (isset($_POST['mira_ls_save_settings']) && check_admin_referer('mira_ls_setti
     update_option('mira_ls_menu_flag_type', sanitize_text_field($_POST['mira_ls_menu_flag_type']));
     update_option('mira_ls_auto_redirect', isset($_POST['mira_ls_auto_redirect']) ? 'yes' : 'no');
     update_option('mira_ls_show_lang_in_title', isset($_POST['mira_ls_show_lang_in_title']) ? 'yes' : 'no');
+    update_option('mira_ls_translate_posts', isset($_POST['mira_ls_translate_posts']) ? 'yes' : 'no');
 
     // Save header/footer page assignments
     $header_pages = array();
@@ -61,6 +62,7 @@ $menu_location = get_option('mira_ls_menu_location', 'all');
 $menu_flag_type = get_option('mira_ls_menu_flag_type', 'emoji');
 $auto_redirect = get_option('mira_ls_auto_redirect', 'no');
 $show_lang_in_title = get_option('mira_ls_show_lang_in_title', 'no');
+$translate_posts = get_option('mira_ls_translate_posts', 'no');
 $header_pages   = get_option('mira_ls_header_pages', array());
 $footer_pages   = get_option('mira_ls_footer_pages', array());
 $cookie_prompts = get_option('mira_ls_cookie_prompt', array());
@@ -256,6 +258,25 @@ $available_languages = array(
                     </label>
                     <p class="description">
                         <?php _e('When enabled, non-English pages will display a language prefix in their titles. For example, Italian pages will show "[IT] Page Title" and Spanish pages will show "[ES] Page Title". English pages will not have a prefix.', 'mira-language-switcher'); ?>
+                    </p>
+                </td>
+            </tr>
+
+            <tr>
+                <th scope="row">
+                    <label for="mira_ls_translate_posts"><?php _e('Translate Blog Posts', 'mira-language-switcher'); ?></label>
+                </th>
+                <td>
+                    <label>
+                        <input type="checkbox"
+                               name="mira_ls_translate_posts"
+                               id="mira_ls_translate_posts"
+                               value="1"
+                               <?php checked($translate_posts, 'yes'); ?>>
+                        <?php _e('Give standard Posts the same language metabox, translation links, and translated-slug URLs as Pages', 'mira-language-switcher'); ?>
+                    </label>
+                    <p class="description">
+                        <?php _e('Default: off. When enabled, blog posts get a language selector and translation-link picker on the edit screen (same as Pages), plus a Lang column on the Posts list. Existing WPML language data for posts can be brought in via WPML Import.', 'mira-language-switcher'); ?>
                     </p>
                 </td>
             </tr>

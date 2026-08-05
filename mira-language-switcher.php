@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.28
+ * Version: 1.2.29
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,13 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.29 - New per-site setting (Settings > Translation Behavior > Translate Blog Posts,
+ *          default off) opts 'post' into get_translatable_post_types() via the
+ *          mira_ls_translatable_post_types filter — gives Posts the same language
+ *          metabox/translation links/translated-slug URLs as Pages, plus a Lang column
+ *          on the Posts list. WPML Import page now imports whichever post types are
+ *          currently translatable (pages, plus posts when the setting is on) instead
+ *          of being hardcoded to post_page only.
  * 1.2.28 - Add render_translatable_field_group() so multiple fields (e.g. title +
  *          body) on a single post can share one flag switcher instead of each
  *          getting its own. render_translatable_field_admin() now takes an $args
@@ -54,7 +61,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.28');
+define('MIRA_LS_VERSION', '1.2.29');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -154,6 +161,17 @@ class Mira_Language_Switcher {
         add_filter('manage_edit-page_sortable_columns', array($this, 'sortable_language_column'));
         add_action('pre_get_posts', array($this, 'sort_by_language_column'));
 
+        // Opt 'post' into translation (metabox, translation links, translated-slug URLs)
+        // when enabled in Settings > Translation Behavior. Off by default — this option
+        // is per-site, not a network-wide default, since this plugin file is shared
+        // across multiple sites that may not want blog posts to be translatable.
+        add_filter('mira_ls_translatable_post_types', array($this, 'maybe_add_post_type_posts'));
+        if (get_option('mira_ls_translate_posts', 'no') === 'yes') {
+            add_filter('manage_posts_columns', array($this, 'add_language_column'));
+            add_action('manage_posts_custom_column', array($this, 'render_language_column'), 10, 2);
+            add_filter('manage_edit-post_sortable_columns', array($this, 'sortable_language_column'));
+        }
+
         // Activation/Deactivation hooks
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
@@ -247,6 +265,7 @@ class Mira_Language_Switcher {
         register_setting('mira_ls_settings_group', 'mira_ls_menu_flag_type');
         register_setting('mira_ls_settings_group', 'mira_ls_auto_redirect');
         register_setting('mira_ls_settings_group', 'mira_ls_show_lang_in_title');
+        register_setting('mira_ls_settings_group', 'mira_ls_translate_posts');
         register_setting('mira_ls_settings_group', 'mira_ls_header_pages');
         register_setting('mira_ls_settings_group', 'mira_ls_footer_pages');
         register_setting('mira_ls_settings_group', 'mira_ls_cookie_prompt');
@@ -1300,6 +1319,20 @@ class Mira_Language_Switcher {
     }
 
     /**
+     * Adds 'post' to the translatable post types list when the site has opted
+     * in via Settings > Translation Behavior > Translate Blog Posts.
+     *
+     * @param string[] $types
+     * @return string[]
+     */
+    public function maybe_add_post_type_posts( $types ) {
+        if ( get_option( 'mira_ls_translate_posts', 'no' ) === 'yes' && ! in_array( 'post', $types, true ) ) {
+            $types[] = 'post';
+        }
+        return $types;
+    }
+
+    /**
      * Add language metabox to page edit screen
      */
     public function add_language_metabox() {
@@ -2049,8 +2082,9 @@ class Mira_Language_Switcher {
         // seminars, etc.) are never translated. Always link back to the same post content,
         // prefixed with the post-type rewrite slug so WordPress can resolve it. The language
         // cookie handles the menu language. Post types opted into get_translatable_post_types()
-        // via the 'mira_ls_translatable_post_types' filter (currently none besides 'page')
-        // fall through to the page-style translated-slug logic below instead.
+        // via the 'mira_ls_translatable_post_types' filter (page, plus post when enabled via
+        // the "Translate Blog Posts" setting) fall through to the page-style translated-slug
+        // logic below instead.
         if ( 'post' !== $current_page->post_type && ! in_array( $current_page->post_type, self::get_translatable_post_types(), true ) ) {
             $pt_obj   = get_post_type_object($current_page->post_type);
             $cpt_slug = ($pt_obj && !empty($pt_obj->rewrite['slug']))

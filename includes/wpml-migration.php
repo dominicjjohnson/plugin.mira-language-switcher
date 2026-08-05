@@ -46,16 +46,21 @@ function mira_ls_wpml_migration_page() {
 	$wpml_page_count = 0;
 	$wpml_pair_count = 0;
 
+	// Import covers whichever post types are currently translatable on this site
+	// (Pages always; Posts too if "Translate Blog Posts" is enabled in Settings).
+	$element_types    = mira_ls_wpml_element_types();
+	$element_types_in = "'" . implode( "','", array_map( 'esc_sql', $element_types ) ) . "'";
+
 	if ( $wpml_exists ) {
 		$wpml_page_count = (int) $wpdb->get_var(
-			"SELECT COUNT(*) FROM {$wpml_table} WHERE element_type = 'post_page'"
+			"SELECT COUNT(*) FROM {$wpml_table} WHERE element_type IN ({$element_types_in})"
 		);
 		// Count groups that have both en and it
 		$wpml_pair_count = (int) $wpdb->get_var(
 			"SELECT COUNT(DISTINCT a.trid)
 			 FROM {$wpml_table} a
 			 JOIN {$wpml_table} b ON a.trid = b.trid AND b.language_code = 'it'
-			 WHERE a.element_type = 'post_page' AND a.language_code = 'en'"
+			 WHERE a.element_type IN ({$element_types_in}) AND a.language_code = 'en'"
 		);
 	}
 
@@ -105,13 +110,14 @@ function mira_ls_wpml_migration_page() {
 			<?php else : ?>
 				<p>
 					<?php printf(
-						esc_html__( 'Found %1$d pages in WPML data with %2$d EN/IT translation pairs.', 'mira-language-switcher' ),
+						esc_html__( 'Found %1$d items (%2$s) in WPML data with %3$d EN/IT translation pairs.', 'mira-language-switcher' ),
 						$wpml_page_count,
+						esc_html( implode( ', ', $element_types ) ),
 						$wpml_pair_count
 					); ?>
 				</p>
 				<p class="description">
-					<?php esc_html_e( 'This will set the language (EN or IT) on each page and link translation pairs. It will not delete any content. You can run it multiple times safely.', 'mira-language-switcher' ); ?>
+					<?php esc_html_e( 'This will set the language (EN or IT) on each item and link translation pairs. It will not delete any content. You can run it multiple times safely.', 'mira-language-switcher' ); ?>
 				</p>
 				<form method="post">
 					<?php wp_nonce_field( 'mira_wpml_migrate', 'mira_wpml_nonce' ); ?>
@@ -163,6 +169,22 @@ function mira_ls_wpml_migration_page() {
 }
 
 /**
+ * WPML element_type values to import, based on which post types are
+ * currently translatable on this site (Pages always; Posts too when
+ * "Translate Blog Posts" is enabled in Settings).
+ *
+ * @return string[] e.g. ['post_page'] or ['post_page', 'post_post']
+ */
+function mira_ls_wpml_element_types() {
+	$post_types = class_exists( 'Mira_Language_Switcher' )
+		? Mira_Language_Switcher::get_translatable_post_types()
+		: array( 'page' );
+	return array_map( function ( $pt ) {
+		return 'post_' . $pt;
+	}, $post_types );
+}
+
+/**
  * Run the WPML to Mira LS migration.
  *
  * @return array Result with 'success', 'message', and 'details' keys.
@@ -180,11 +202,14 @@ function mira_ls_run_wpml_migration() {
 		);
 	}
 
-	// Fetch all page entries from WPML
+	$element_types    = mira_ls_wpml_element_types();
+	$element_types_in = "'" . implode( "','", array_map( 'esc_sql', $element_types ) ) . "'";
+
+	// Fetch all matching entries from WPML (pages, plus posts if enabled)
 	$rows = $wpdb->get_results(
 		"SELECT trid, element_id, language_code
 		 FROM {$wpml_table}
-		 WHERE element_type = 'post_page'
+		 WHERE element_type IN ({$element_types_in})
 		 ORDER BY trid, language_code"
 	);
 
@@ -236,7 +261,7 @@ function mira_ls_run_wpml_migration() {
 		'success' => true,
 		'message' => 'WPML data imported successfully.',
 		'details' => array(
-			sprintf( '%d pages tagged with language.', $pages_tagged ),
+			sprintf( '%1$d items tagged with language (%2$s).', $pages_tagged, implode( ', ', $element_types ) ),
 			sprintf( '%d translation pairs imported.', $pairs_imported ),
 		),
 	);
