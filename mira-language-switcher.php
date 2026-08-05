@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.33
+ * Version: 1.2.34
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,14 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.34 - Fix detect_language() clobbering the session's language cookie back to the
+ *          default on every admin-ajax.php/REST request. Those requests have no URL
+ *          language prefix of their own (e.g. a WPBakery grid on /en/blog-2/ reloading
+ *          its items via admin-ajax.php), but were being treated as "bare URL = default
+ *          language" page navigation, silently flipping the visitor back to the default
+ *          language mid-session — the actual cause of English pages "refreshing" to
+ *          Italian content shortly after load. AJAX/REST requests now just read the
+ *          existing cookie instead of resetting it.
  * 1.2.33 - Fix filter_secondary_queries_by_language() bailing on admin-ajax.php requests:
  *          is_admin() is true there even when triggered from the front end, which meant
  *          WPBakery's "Load More" grid pagination (and any other AJAX-paginated grid/loop)
@@ -85,7 +93,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.33');
+define('MIRA_LS_VERSION', '1.2.34');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -497,6 +505,19 @@ class Mira_Language_Switcher {
             $_COOKIE['mira_language'] = $detected_lang;
 
             return $detected_lang;
+        }
+
+        // admin-ajax.php and REST requests are not page navigation — they're the
+        // current page's own JS fetching supplementary data (e.g. a WPBakery grid
+        // reloading its items), and have no URL prefix of their own regardless of
+        // what page triggered them. Treating that as "no prefix = default language"
+        // would overwrite the session's actual language on every such request — use
+        // whatever language is already active instead of resetting it.
+        if (wp_doing_ajax() || (defined('REST_REQUEST') && REST_REQUEST)) {
+            if (!empty($_COOKIE['mira_language']) && in_array($_COOKIE['mira_language'], $enabled_languages, true)) {
+                return $_COOKIE['mira_language'];
+            }
+            return $default_language;
         }
 
         // No language prefix in URL — bare URLs are the default language (WPML-style).
