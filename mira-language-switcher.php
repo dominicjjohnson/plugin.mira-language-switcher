@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.31
+ * Version: 1.2.32
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,13 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.32 - New Language Audit page (includes/language-audit.php): read-only report that
+ *          flags translatable posts/pages whose tagged language disagrees with a
+ *          stopword-frequency guess of the actual text (en/it/es). Built for cleaning up
+ *          after WPML Import, where the source icl_translations.language_code is
+ *          sometimes wrong for individual posts and previously had to be found by
+ *          checking every imported item by hand. Never changes content — only lists
+ *          likely mismatches with a link to each post's edit screen.
  * 1.2.31 - Filter secondary queries (grid/loop shortcodes — e.g. WPBakery's Basic Grid)
  *          for translatable post types down to the current language via a new
  *          pre_get_posts handler, filter_secondary_queries_by_language(). Previously
@@ -73,7 +80,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.31');
+define('MIRA_LS_VERSION', '1.2.32');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -82,6 +89,7 @@ define('MIRA_LS_TRANSLATIONS_OPTION', 'mira_ls_translation_links');
 
 // Includes
 require_once MIRA_LS_PLUGIN_DIR . 'includes/wpml-migration.php';
+require_once MIRA_LS_PLUGIN_DIR . 'includes/language-audit.php';
 require_once MIRA_LS_PLUGIN_DIR . 'includes/guide-page.php';
 
 /**
