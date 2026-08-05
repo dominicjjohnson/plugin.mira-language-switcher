@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.34
+ * Version: 1.2.35
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,12 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.35 - New UI Text page (includes/ui-strings.php): lets an admin override the
+ *          display text of fixed strings from a theme/third-party plugin that don't
+ *          switch with the site's language (e.g. WPBakery's "Read more" grid button,
+ *          which comes from WordPress's site-wide .mo/.po locale, not this plugin's
+ *          per-visitor language cookie). Exact-match via the gettext filter, front-end
+ *          only, only when viewing a non-default language.
  * 1.2.34 - Fix detect_language() clobbering the session's language cookie back to the
  *          default on every admin-ajax.php/REST request. Those requests have no URL
  *          language prefix of their own (e.g. a WPBakery grid on /en/blog-2/ reloading
@@ -93,7 +99,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.34');
+define('MIRA_LS_VERSION', '1.2.35');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -103,6 +109,7 @@ define('MIRA_LS_TRANSLATIONS_OPTION', 'mira_ls_translation_links');
 // Includes
 require_once MIRA_LS_PLUGIN_DIR . 'includes/wpml-migration.php';
 require_once MIRA_LS_PLUGIN_DIR . 'includes/language-audit.php';
+require_once MIRA_LS_PLUGIN_DIR . 'includes/ui-strings.php';
 require_once MIRA_LS_PLUGIN_DIR . 'includes/guide-page.php';
 
 /**
