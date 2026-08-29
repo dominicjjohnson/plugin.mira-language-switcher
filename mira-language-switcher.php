@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.35
+ * Version: 1.2.36
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,15 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.36 - Fix 404 on translated URLs for non-'page' translatable post types (e.g.
+ *          'post', once "Translate Blog Posts" is enabled). WordPress core's verbose
+ *          page rules check silently skip any rewrite rule containing
+ *          'pagename=$matches[...]' when get_page_by_path() (default post_type
+ *          'page') can't find the target — which always failed for translated posts.
+ *          The language-prefix rules now use a plugin-specific 'mira_lang_slug' query
+ *          var instead, and load_translated_content() resolves + loads the matched
+ *          post/page explicitly (by post_type/p or page_id) rather than relying on
+ *          WordPress's native passive pagename resolution, which no longer applies.
  * 1.2.35 - New UI Text page (includes/ui-strings.php): lets an admin override the
  *          display text of fixed strings from a theme/third-party plugin that don't
  *          switch with the site's language (e.g. WPBakery's "Read more" grid button,
@@ -99,7 +108,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.35');
+define('MIRA_LS_VERSION', '1.2.36');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -577,16 +586,24 @@ class Mira_Language_Switcher {
             }
 
             // Rule for single-level pages/posts (e.g., /en/about-us)
+            // Deliberately uses a plugin-specific query var instead of 'pagename':
+            // WordPress core's "verbose page rules" check (wp-includes/class-wp.php)
+            // special-cases any rule containing literal 'pagename=$matches[...]' by
+            // calling get_page_by_path() with no post_type (defaults to 'page' only)
+            // to pre-verify the match, silently skipping the rule — and thus this
+            // whole translated URL — whenever the target is a 'post' rather than a
+            // 'page'. load_translated_content() resolves mira_lang_slug manually
+            // across all translatable post types instead.
             add_rewrite_rule(
                 '^' . $lang . '/([^/]+)/?$',
-                'index.php?lang=' . $lang . '&pagename=$matches[1]',
+                'index.php?lang=' . $lang . '&mira_lang_slug=$matches[1]',
                 'top'
             );
 
             // Rule for nested paths (e.g., /en/parent/child)
             add_rewrite_rule(
                 '^' . $lang . '/(.+)/?$',
-                'index.php?lang=' . $lang . '&pagename=$matches[1]',
+                'index.php?lang=' . $lang . '&mira_lang_slug=$matches[1]',
                 'top'
             );
         }
@@ -600,6 +617,7 @@ class Mira_Language_Switcher {
      */
     public function add_query_vars($vars) {
         $vars[] = 'lang';
+        $vars[] = 'mira_lang_slug';
         return $vars;
     }
 
@@ -652,8 +670,10 @@ class Mira_Language_Switcher {
             return;
         }
 
-        // Get the page name from query
-        $pagename  = get_query_var('pagename');
+        // Get the page name from query. Read from our own 'mira_lang_slug' var
+        // (set by add_rewrite_rules()) rather than 'pagename' — see the comment
+        // there for why 'pagename' can't be used for this.
+        $pagename  = get_query_var('mira_lang_slug');
         $cpt_name  = get_query_var('name');
         $cpt_type  = get_query_var('post_type');
 
@@ -743,27 +763,46 @@ class Mira_Language_Switcher {
             return;
         }
 
-        // If the requested language is the default language, show the default page
-        if ($lang === $default_language) {
-            // The default page is already being loaded, no need to modify query
-            return;
-        }
-
-        // Get the translated page ID for this language
-        $translated_id = self::get_translation($default_page->ID, $lang);
-
-        // If translation exists, modify the query to load it
-        if ($translated_id) {
-            $query->set('page_id', $translated_id);
-            $query->set('pagename', '');
-            // Ensure is_singular is set — parse_query() doesn't know about the
-            // page_id we're injecting here, so flags must be set manually.
+        // Non-page translatable post types (e.g. 'post', once "Translate Blog Posts"
+        // is enabled) resolved above via get_page_by_path() still need to be loaded
+        // by post_type + p — WordPress core's native pagename/page_id handling only
+        // ever matches post_type 'page', so leaving pagename as-is 404s even though
+        // the correct post was already found. get_language_url() always builds these
+        // URLs from the target post's own slug, so the post found here is already
+        // the right one to display — no translation-link lookup needed.
+        if ( 'page' !== $default_page->post_type ) {
+            $query->set( 'p', $default_page->ID );
+            $query->set( 'post_type', $default_page->post_type );
+            $query->set( 'name', $default_page->post_name );
+            $query->set( 'pagename', '' );
             $query->is_singular = true;
-            $query->is_page     = true;
+            $query->is_single   = true;
+            $query->is_page     = false;
             $query->is_home     = false;
             $query->is_archive  = false;
             $query->is_404      = false;
+            return;
         }
+
+        // Get the translated page ID for this language, if one is explicitly
+        // linked. Otherwise $default_page (found by slug above) is already the
+        // right page to display — either because it's the default-language
+        // page itself ($lang === $default_language), or because it's a page
+        // whose own slug already matches the requested target (the "no
+        // translation exists" fallback built by get_language_url()).
+        $translated_id   = ($lang === $default_language) ? null : self::get_translation($default_page->ID, $lang);
+        $page_id_to_load = $translated_id ? $translated_id : $default_page->ID;
+
+        // Since mira_lang_slug (unlike 'pagename') isn't natively resolved by
+        // WordPress, this query must be populated explicitly rather than relying
+        // on core's passive pagename handling.
+        $query->set('page_id', $page_id_to_load);
+        $query->set('pagename', '');
+        $query->is_singular = true;
+        $query->is_page     = true;
+        $query->is_home     = false;
+        $query->is_archive  = false;
+        $query->is_404      = false;
     }
 
     /**
