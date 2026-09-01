@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.36
+ * Version: 1.2.37
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,14 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.37 - Fix get_page_language() falling back to the MIRA_LS_DEFAULT_LANGUAGE
+ *          constant ('en') instead of the site's configured
+ *          'mira_ls_default_language' option for pages with no explicit language
+ *          meta. On an Italian-default site every untagged Italian page was
+ *          reported as English, so get_language_url() treated it as a stray
+ *          translation, failed the reverse translation-link lookup, and degraded
+ *          the other-language flag links to an /{lang}/{same-slug}/ (often
+ *          homepage) fallback instead of resolving the real translated page.
  * 1.2.36 - Fix 404 on translated URLs for non-'page' translatable post types (e.g.
  *          'post', once "Translate Blog Posts" is enabled). WordPress core's verbose
  *          page rules check silently skip any rewrite rule containing
@@ -108,7 +116,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.36');
+define('MIRA_LS_VERSION', '1.2.37');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -1741,9 +1749,15 @@ class Mira_Language_Switcher {
     public static function get_page_language($page_id) {
         $language = get_post_meta($page_id, '_mira_page_language', true);
 
-        // If no language set, return default
+        // If no language set, return the site's configured default language.
+        // Must read the 'mira_ls_default_language' option, NOT the
+        // MIRA_LS_DEFAULT_LANGUAGE constant ('en'): on an Italian-default site
+        // an untagged page would otherwise be reported as English, which makes
+        // get_language_url() treat every default-language page as a stray
+        // translation and degrade its flag links to an /{lang}/{same-slug}/
+        // (or homepage) fallback instead of resolving the real translation.
         if (empty($language)) {
-            return MIRA_LS_DEFAULT_LANGUAGE;
+            return get_option('mira_ls_default_language', MIRA_LS_DEFAULT_LANGUAGE);
         }
 
         return $language;
