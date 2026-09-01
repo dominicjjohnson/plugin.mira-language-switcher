@@ -3,7 +3,7 @@
  * Plugin Name: Mira Language Switcher
  * Plugin URI: https://miramedia.net
  * Description: A simple language switcher plugin with setup and settings pages
- * Version: 1.2.37
+ * Version: 1.2.38
  * Author: Dominic Johnson / Miramedia
  * Author URI: https://miramedia.net
  * License: GPL v2 or later
@@ -11,6 +11,13 @@
  * Text Domain: mira-language-switcher
  *
  * Changelog:
+ * 1.2.38 - Fix non-default-language flag links 404ing (or dropping to the blog
+ *          index) on blog posts when "Translate Blog Posts" is off. 'post' isn't
+ *          in get_translatable_post_types() then, so load_translated_content()'s
+ *          get_page_by_path() lookup skipped it and the /{lang}/{slug}/ URL never
+ *          resolved. It now falls back to loading the same post by slug under the
+ *          language prefix (same content, chrome switched to the URL language),
+ *          matching how never-translated CPTs already behave.
  * 1.2.37 - Fix get_page_language() falling back to the MIRA_LS_DEFAULT_LANGUAGE
  *          constant ('en') instead of the site's configured
  *          'mira_ls_default_language' option for pages with no explicit language
@@ -116,7 +123,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('MIRA_LS_VERSION', '1.2.37');
+define('MIRA_LS_VERSION', '1.2.38');
 define('MIRA_LS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MIRA_LS_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MIRA_LS_DEFAULT_LANGUAGE', 'en');
@@ -766,6 +773,31 @@ class Mira_Language_Switcher {
                             $query->is_404      = false;
                         }
                     }
+                }
+            }
+
+            // Still unresolved: try a plain blog post by slug. When "Translate Blog
+            // Posts" is off, 'post' isn't in get_translatable_post_types(), so the
+            // get_page_by_path() lookup above skipped it and the /{lang}/{slug}/ URL
+            // built by get_language_url() would otherwise 404 (or fall through to the
+            // blog index). Serve the same post under the language prefix — identical
+            // content, chrome switched to the URL's language, exactly like a
+            // never-translated CPT. basename() also covers a prefixed permalink
+            // structure (e.g. /blog/%postname%/) whose slug arrives with segments.
+            if (!$query->get('p')) {
+                $blog_post = get_page_by_path(basename($pagename), OBJECT, 'post');
+                if ($blog_post) {
+                    $query->set('p', $blog_post->ID);
+                    $query->set('post_type', 'post');
+                    $query->set('name', $blog_post->post_name);
+                    $query->set('pagename', '');
+                    $query->set('mira_lang_slug', '');
+                    $query->is_singular = true;
+                    $query->is_single   = true;
+                    $query->is_page     = false;
+                    $query->is_home     = false;
+                    $query->is_archive  = false;
+                    $query->is_404      = false;
                 }
             }
             return;
